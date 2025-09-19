@@ -1,6 +1,6 @@
 // Contract addresses - these would be updated after deployment
 export const CONTRACT_ADDRESSES = {
-  FACTORY: "0x0000000000000000000000000000000000000000", // To be updated after deployment
+  FACTORY: "0xac770220C1824B977953a5663E00Be8f2F9a25Df", // Deployed on Arbitrum Sepolia
   // Individual business contract addresses will be stored in database
 } as const
 
@@ -151,21 +151,124 @@ export const BUSINESS_CONTRACT_ABI = [
 
 // Network configuration
 export const NETWORK_CONFIG = {
-  chainId: 11155111, // Sepolia testnet
-  rpcUrl: "https://sepolia.infura.io/v3/YOUR_INFURA_KEY", // Update with actual RPC
-  blockExplorer: "https://sepolia.etherscan.io"
+  chainId: 421614, // Arbitrum Sepolia testnet
+  rpcUrl: "https://sepolia-rollup.arbitrum.io/rpc", // Arbitrum Sepolia RPC
+  blockExplorer: "https://sepolia.arbiscan.io"
 } as const
+
+// Predefined reward templates available to all businesses
+export const REWARD_TEMPLATES = [
+  {
+    id: 1,
+    name: "Social Media Boost",
+    description: "50 points + 10% discount voucher for social media engagement",
+    rewardType: "WEB2_VOUCHER" as const,
+    pointsValue: 50,
+    voucherMetadata: JSON.stringify({
+      discountPercentage: 10,
+      validFor: "next purchase",
+      terms: "Valid for 30 days from issuance",
+      excludes: []
+    }),
+    validityPeriod: 30 * 24 * 60 * 60, // 30 days
+    tokenAddress: "0x0000000000000000000000000000000000000000",
+    tokenAmount: 0,
+    nftMetadata: ""
+  },
+  {
+    id: 2,
+    name: "Referral Bonus",
+    description: "100 points for successful customer referrals",
+    rewardType: "NONE" as const,
+    pointsValue: 100,
+    voucherMetadata: "",
+    validityPeriod: 0,
+    tokenAddress: "0x0000000000000000000000000000000000000000",
+    tokenAmount: 0,
+    nftMetadata: ""
+  },
+  {
+    id: 3,
+    name: "Review Reward",
+    description: "25 points + 5% discount for leaving honest reviews",
+    rewardType: "WEB2_VOUCHER" as const,
+    pointsValue: 25,
+    voucherMetadata: JSON.stringify({
+      discountPercentage: 5,
+      validFor: "next purchase",
+      terms: "Valid for 14 days from issuance",
+      excludes: []
+    }),
+    validityPeriod: 14 * 24 * 60 * 60, // 14 days
+    tokenAddress: "0x0000000000000000000000000000000000000000",
+    tokenAmount: 0,
+    nftMetadata: ""
+  },
+  {
+    id: 4,
+    name: "Loyalty Points",
+    description: "Standard loyalty points for various activities",
+    rewardType: "NONE" as const,
+    pointsValue: 20,
+    voucherMetadata: "",
+    validityPeriod: 0,
+    tokenAddress: "0x0000000000000000000000000000000000000000",
+    tokenAmount: 0,
+    nftMetadata: ""
+  },
+  {
+    id: 5,
+    name: "First Purchase",
+    description: "75 points + 15% welcome discount for new customers",
+    rewardType: "WEB2_VOUCHER" as const,
+    pointsValue: 75,
+    voucherMetadata: JSON.stringify({
+      discountPercentage: 15,
+      validFor: "first purchase",
+      terms: "Valid for 7 days, new customers only",
+      excludes: ["gift cards", "sale items"]
+    }),
+    validityPeriod: 7 * 24 * 60 * 60, // 7 days
+    tokenAddress: "0x0000000000000000000000000000000000000000",
+    tokenAmount: 0,
+    nftMetadata: ""
+  },
+  {
+    id: 6,
+    name: "Token Reward",
+    description: "Points + token airdrop for Web3 businesses",
+    rewardType: "TOKEN_AIRDROP" as const,
+    pointsValue: 30,
+    voucherMetadata: "",
+    validityPeriod: 0,
+    tokenAddress: "0x0000000000000000000000000000000000000000", // To be set by business
+    tokenAmount: 100, // Default amount, can be customized
+    nftMetadata: ""
+  },
+  {
+    id: 7,
+    name: "Achievement NFT",
+    description: "Points + commemorative NFT for special achievements",
+    rewardType: "NFT_REWARD" as const,
+    pointsValue: 150,
+    voucherMetadata: "",
+    validityPeriod: 0,
+    tokenAddress: "0x0000000000000000000000000000000000000000",
+    tokenAmount: 0,
+    nftMetadata: JSON.stringify({
+      category: "achievement",
+      rarity: "common",
+      attributes: []
+    })
+  }
+] as const
 
 // Default values for forms
 export const DEFAULT_VALUES = {
   BOUNTY: {
     maxCompletions: 0, // unlimited
-    expiry: Math.floor(Date.now() / 1000) + (30 * 24 * 60 * 60) // 30 days from now
-  },
-  REWARD: {
-    pointsValue: 10,
-    validityPeriod: 30 * 24 * 60 * 60, // 30 days
-    tokenAmount: 0
+    expiry: Math.floor(Date.now() / 1000) + (30 * 24 * 60 * 60), // 30 days from now
+    rewardTemplateId: 1 // Default to first reward template
   },
   PRIZE: {
     pointsCost: 100,
