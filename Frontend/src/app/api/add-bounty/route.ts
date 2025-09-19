@@ -63,48 +63,40 @@ export async function POST(request: NextRequest) {
       transport: http(NETWORK_CONFIG.rpcUrl)
     })
 
-    // Step 1: Add reward template to the contract
-    const { request: rewardRequest } = await publicClient.simulateContract({
-      address: contractAddress as `0x${string}`,
-      abi: BUSINESS_CONTRACT_ABI,
-      functionName: 'addRewardTemplate',
-      args: [
-        bounty.rewardData.name,
-        bounty.rewardData.description,
-        REWARD_TYPES[bounty.rewardData.rewardType], // Convert to enum value
-        BigInt(bounty.rewardData.pointsValue),
-        bounty.rewardData.voucherMetadata,
-        BigInt(bounty.rewardData.validityPeriod),
-        bounty.rewardData.tokenAddress as `0x${string}`,
-        BigInt(bounty.rewardData.tokenAmount),
-        bounty.rewardData.nftMetadata
-      ],
-      account
-    })
-
-    const rewardHash = await walletClient.writeContract(rewardRequest)
-    console.log('Reward template transaction submitted:', rewardHash)
-
-    // Wait for reward template transaction
-    const rewardReceipt = await publicClient.waitForTransactionReceipt({ 
-      hash: rewardHash,
-      timeout: 60_000
-    })
-
-    // Extract reward template ID from logs
+    // Step 1: Ensure reward template exists (reuse if matching one found)
     let rewardTemplateId: bigint | undefined
 
-    for (const log of rewardReceipt.logs) {
+    // Fetch active reward templates
+    const activeRewardIds = await publicClient.readContract({
+      address: contractAddress as `0x${string}`,
+      abi: BUSINESS_CONTRACT_ABI,
+      functionName: 'getActiveRewards'
+    }) as bigint[]
+
+    for (const rid of activeRewardIds) {
       try {
-        const decoded = decodeEventLog({
+        const rd = await publicClient.readContract({
+          address: contractAddress as `0x${string}`,
           abi: BUSINESS_CONTRACT_ABI,
-          eventName: 'RewardTemplateAdded',
-          data: log.data,
-          topics: log.topics
-        })
-        
-        if (decoded.eventName === 'RewardTemplateAdded') {
-          rewardTemplateId = decoded.args.rewardId
+          functionName: 'getRewardTemplate',
+          args: [rid]
+        }) as any
+
+        // Compare key fields to determine equivalence
+        const sameType = Number(rd.rewardType) === REWARD_TYPES[bounty.rewardData.rewardType]
+        const same =
+          (rd.name || '') === bounty.rewardData.name &&
+          (rd.description || '') === bounty.rewardData.description &&
+          sameType &&
+          (rd.pointsValue?.toString?.() || '0') === String(bounty.rewardData.pointsValue) &&
+          (rd.voucherMetadata || '') === (bounty.rewardData.voucherMetadata || '') &&
+          (rd.validityPeriod?.toString?.() || '0') === String(bounty.rewardData.validityPeriod || 0) &&
+          (rd.tokenAddress || '').toLowerCase() === (bounty.rewardData.tokenAddress || '').toLowerCase() &&
+          (rd.tokenAmount?.toString?.() || '0') === String(bounty.rewardData.tokenAmount || 0) &&
+          (rd.nftMetadata || '') === (bounty.rewardData.nftMetadata || '')
+
+        if (same && rd.active) {
+          rewardTemplateId = rd.id
           break
         }
       } catch (e) {
@@ -112,11 +104,59 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // If not found, add a new reward template
     if (!rewardTemplateId) {
-      throw new Error('Could not extract reward template ID from transaction logs')
-    }
+      const { request: rewardRequest } = await publicClient.simulateContract({
+        address: contractAddress as `0x${string}`,
+        abi: BUSINESS_CONTRACT_ABI,
+        functionName: 'addRewardTemplate',
+        args: [
+          bounty.rewardData.name,
+          bounty.rewardData.description,
+          REWARD_TYPES[bounty.rewardData.rewardType],
+          BigInt(bounty.rewardData.pointsValue),
+          bounty.rewardData.voucherMetadata,
+          BigInt(bounty.rewardData.validityPeriod),
+          bounty.rewardData.tokenAddress as `0x${string}`,
+          BigInt(bounty.rewardData.tokenAmount),
+          bounty.rewardData.nftMetadata
+        ],
+        account
+      })
 
-    console.log('Reward template created with ID:', rewardTemplateId.toString())
+      const rewardHash = await walletClient.writeContract(rewardRequest)
+      console.log('Reward template transaction submitted:', rewardHash)
+
+      const rewardReceipt = await publicClient.waitForTransactionReceipt({ 
+        hash: rewardHash,
+        timeout: 60_000
+      })
+
+      for (const log of rewardReceipt.logs) {
+        try {
+          const decoded = decodeEventLog({
+            abi: BUSINESS_CONTRACT_ABI,
+            eventName: 'RewardTemplateAdded',
+            data: log.data,
+            topics: log.topics
+          })
+          if (decoded.eventName === 'RewardTemplateAdded') {
+            rewardTemplateId = decoded.args.rewardId
+            break
+          }
+        } catch (e) {
+          continue
+        }
+      }
+
+      if (!rewardTemplateId) {
+        throw new Error('Could not extract reward template ID from transaction logs')
+      }
+
+      console.log('Reward template created with ID:', rewardTemplateId.toString())
+    } else {
+      console.log('Reusing existing reward template ID:', rewardTemplateId.toString())
+    }
 
     // Step 2: Create bounty using the reward template
     const { request: bountyRequest } = await publicClient.simulateContract({
@@ -173,9 +213,7 @@ export async function POST(request: NextRequest) {
       success: true,
       bountyId: bountyId.toString(),
       rewardTemplateId: rewardTemplateId.toString(),
-      rewardTxHash: rewardHash,
       bountyTxHash: bountyHash,
-      rewardBlockNumber: rewardReceipt.blockNumber.toString(),
       bountyBlockNumber: bountyReceipt.blockNumber.toString(),
       message: `Bounty "${bounty.title}" created successfully`
     })

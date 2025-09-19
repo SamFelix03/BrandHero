@@ -35,10 +35,10 @@ export const FACTORY_ABI = [
   },
   {
     "inputs": [
-      { "name": "_uuid", "type": "string" },
-      { "name": "_name", "type": "string" },
-      { "name": "_description", "type": "string" },
-      { "name": "_businessENSDomain", "type": "string" }
+      { "name": "uuid", "type": "string", "indexed": true },
+      { "name": "contractAddress", "type": "address", "indexed": true },
+      { "name": "owner", "type": "address", "indexed": true },
+      { "name": "name", "type": "string", "indexed": false }
     ],
     "name": "BusinessContractDeployed",
     "type": "event"
@@ -115,6 +115,96 @@ export const BUSINESS_CONTRACT_ABI = [
     "inputs": [],
     "name": "getActivePrizes", 
     "outputs": [{ "name": "", "type": "uint256[]" }],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [{ "name": "_bountyId", "type": "uint256" }],
+    "name": "getBounty",
+    "outputs": [
+      {
+        "name": "",
+        "type": "tuple",
+        "components": [
+          { "name": "id", "type": "uint256" },
+          { "name": "title", "type": "string" },
+          { "name": "description", "type": "string" },
+          { "name": "rewardTemplateId", "type": "uint256" },
+          { "name": "active", "type": "bool" },
+          { "name": "expiry", "type": "uint256" },
+          { "name": "maxCompletions", "type": "uint256" },
+          { "name": "currentCompletions", "type": "uint256" }
+        ]
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [{ "name": "_prizeId", "type": "uint256" }],
+    "name": "getPrize",
+    "outputs": [
+      {
+        "name": "",
+        "type": "tuple",
+        "components": [
+          { "name": "id", "type": "uint256" },
+          { "name": "name", "type": "string" },
+          { "name": "description", "type": "string" },
+          { "name": "pointsCost", "type": "uint256" },
+          { "name": "active", "type": "bool" },
+          { "name": "maxClaims", "type": "uint256" },
+          { "name": "currentClaims", "type": "uint256" },
+          { "name": "metadata", "type": "string" }
+        ]
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "getAllMembers",
+    "outputs": [{ "name": "", "type": "address[]" }],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [{ "name": "_user", "type": "address" }],
+    "name": "getUserData",
+    "outputs": [
+      { "name": "totalPoints", "type": "uint256" },
+      { "name": "completedBounties", "type": "uint256[]" },
+      { "name": "ownedVouchers", "type": "uint256[]" },
+      { "name": "claimedPrizes", "type": "uint256[]" },
+      { "name": "ensName", "type": "string" },
+      { "name": "joinedAt", "type": "uint256" }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [{ "name": "_rewardId", "type": "uint256" }],
+    "name": "getRewardTemplate",
+    "outputs": [
+      {
+        "name": "",
+        "type": "tuple",
+        "components": [
+          { "name": "id", "type": "uint256" },
+          { "name": "name", "type": "string" },
+          { "name": "description", "type": "string" },
+          { "name": "rewardType", "type": "uint8" },
+          { "name": "pointsValue", "type": "uint256" },
+          { "name": "active", "type": "bool" },
+          { "name": "voucherMetadata", "type": "string" },
+          { "name": "validityPeriod", "type": "uint256" },
+          { "name": "tokenAddress", "type": "address" },
+          { "name": "tokenAmount", "type": "uint256" },
+          { "name": "nftMetadata", "type": "string" }
+        ]
+      }
+    ],
     "stateMutability": "view",
     "type": "function"
   },
