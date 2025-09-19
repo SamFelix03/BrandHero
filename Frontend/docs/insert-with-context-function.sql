@@ -8,7 +8,8 @@ CREATE OR REPLACE FUNCTION insert_business_with_context(
   p_social_links jsonb DEFAULT '{}',
   p_is_token_issuer boolean DEFAULT false,
   p_token_contract_address text DEFAULT NULL,
-  p_profile_picture_url text DEFAULT NULL
+  p_profile_picture_url text DEFAULT NULL,
+  p_ens_domain text DEFAULT NULL
 )
 RETURNS jsonb AS $$
 DECLARE
@@ -27,7 +28,8 @@ BEGIN
     social_links,
     is_token_issuer,
     token_contract_address,
-    profile_picture_url
+    profile_picture_url,
+    ens_domain
   ) VALUES (
     p_wallet_address,
     p_business_name,
@@ -37,7 +39,8 @@ BEGIN
     p_social_links,
     p_is_token_issuer,
     p_token_contract_address,
-    p_profile_picture_url
+    p_profile_picture_url,
+    p_ens_domain
   ) RETURNING * INTO business_record;
   
   -- Return the inserted record as JSON
@@ -46,7 +49,7 @@ END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
 -- Grant execute permission
-GRANT EXECUTE ON FUNCTION insert_business_with_context(text, text, text, text, text, jsonb, boolean, text, text) TO anon, authenticated;
+GRANT EXECUTE ON FUNCTION insert_business_with_context(text, text, text, text, text, jsonb, boolean, text, text, text) TO anon, authenticated;
 
 -- Also restore the original RLS policy
 DROP POLICY IF EXISTS "wallet_matches" ON businesses;
