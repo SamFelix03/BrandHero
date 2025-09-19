@@ -1,0 +1,107 @@
+# Foundry build artifacts
+out/
+cache/
+broadcast/
+
+# Foundry test artifacts
+test-failures
+
+# Solidity compilation artifacts
+*.abi
+*.bin
+*.bin-runtime
+*.metadata.json
+
+# Gas reports
+gas-report.txt
+gas-report.json
+
+# Coverage reports
+coverage/
+coverage.json
+lcov.info
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Runtime data
+pids
+*.pid
+*.seed
+*.pid.lock
+
+# Dependency directories
+node_modules/
+
+# Environment variables
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Temporary files
+*.tmp
+*.temp
+
+# Foundry specific
+forge-cache/
+forge-out/
+
+# Hardhat artifacts (if using Hardhat alongside Foundry)
+artifacts/
+typechain/
+typechain-types/
+
+# Slither analysis
+slither.db.json
+
+# Mythril analysis
+mythril/
+
+# Echidna fuzzing
+crytic-export/
+
+# Custom build scripts output
+build/
+dist/
+
+# Test coverage
+coverage/
+.nyc_output/
+
+# Documentation build
+docs/_build/
+site/
+
+# Backup files
+*.bak
+*.backup
+*.orig
+
+# Lock files (keep package-lock.json but ignore others)
+yarn.lock
+pnpm-lock.yaml
+
+# Local configuration overrides
+foundry.toml.local
+remappings.txt.local
