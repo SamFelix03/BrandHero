@@ -1,13 +1,26 @@
 "use client"
 
-import { useState } from 'react'
-import { usePrivy } from '@privy-io/react-auth'
+import { useAuthStore } from '@/stores/auth-store'
 import ShaderBackground from '../../components/shader-background'
 import Header from '../../components/header'
 import BusinessOnboardingForm from '../../components/business-onboarding-form'
 
 export default function BusinessOnboarding() {
-  const { authenticated, user } = usePrivy()
+  const { authenticated, user, businessLoading } = useAuthStore()
+
+  if (businessLoading) {
+    return (
+      <ShaderBackground>
+        <Header />
+        <main className="absolute top-20 left-0 right-0 bottom-0 flex items-center justify-center z-20">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto mb-4"></div>
+            <p className="text-white/70">Checking your account...</p>
+          </div>
+        </main>
+      </ShaderBackground>
+    )
+  }
 
   if (!authenticated) {
     return (
