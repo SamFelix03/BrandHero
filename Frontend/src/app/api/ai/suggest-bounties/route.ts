@@ -20,28 +20,11 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Mock AI analysis - in reality this would analyze the business and suggest relevant bounties
-    // For now, return two hardcoded bounties based on the contract structure
+    // AI suggests bounty activities only - business owner will select rewards manually
     const suggestedBounties = [
       {
         title: "Share Your Experience",
         description: `Post about your experience at ${businessData.business_name} on social media and tag us. Help spread the word about our awesome service!`,
-        rewardTemplate: {
-          name: "Social Media Reward",
-          description: "Get 50 points + 10% discount voucher for sharing your experience",
-          rewardType: "WEB2_VOUCHER", // Maps to RewardType.WEB2_VOUCHER
-          pointsValue: 50,
-          voucherMetadata: JSON.stringify({
-            discountPercentage: 10,
-            validFor: "next purchase",
-            terms: "Valid for 30 days from issuance",
-            excludes: []
-          }),
-          validityPeriod: 30 * 24 * 60 * 60, // 30 days in seconds
-          tokenAddress: "0x0000000000000000000000000000000000000000",
-          tokenAmount: 0,
-          nftMetadata: ""
-        },
         expiry: Math.floor(Date.now() / 1000) + (90 * 24 * 60 * 60), // 90 days from now
         maxCompletions: 0, // unlimited
         suggested: true
@@ -49,19 +32,15 @@ export async function POST(request: NextRequest) {
       {
         title: "Refer a Friend",
         description: `Bring a friend to ${businessData.business_name}! When your referred friend makes their first purchase, you both get rewarded.`,
-        rewardTemplate: {
-          name: "Referral Bonus",
-          description: "100 points for successful referrals - help us grow our community!",
-          rewardType: "NONE", // Points only
-          pointsValue: 100,
-          voucherMetadata: "",
-          validityPeriod: 0,
-          tokenAddress: "0x0000000000000000000000000000000000000000",
-          tokenAmount: 0,
-          nftMetadata: ""
-        },
         expiry: 0, // No expiry
         maxCompletions: 10, // limit to 10 referrals per person
+        suggested: true
+      },
+      {
+        title: "Write a Review",
+        description: `Share your honest feedback about ${businessData.business_name}. Your review helps other customers and helps us improve!`,
+        expiry: Math.floor(Date.now() / 1000) + (60 * 24 * 60 * 60), // 60 days from now
+        maxCompletions: 1, // one review per customer
         suggested: true
       }
     ]

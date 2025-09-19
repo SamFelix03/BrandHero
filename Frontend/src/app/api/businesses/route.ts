@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { supabase } from '@/lib/supabase'
 import { createPublicClient, http } from 'viem'
-import { mainnet } from 'viem/chains'
+import { sepolia } from 'viem/chains'
 
 export async function POST(request: NextRequest) {
   try {
@@ -31,7 +31,7 @@ export async function POST(request: NextRequest) {
     // Verify ENS ownership (required)
     try {
       const publicClient = createPublicClient({
-        chain: mainnet,
+        chain: sepolia,
         transport: http()
       })
 
