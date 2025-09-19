@@ -56,6 +56,7 @@ DROP POLICY IF EXISTS "wallet_matches" ON businesses;
 DROP POLICY IF EXISTS "businesses_insert_own" ON businesses;
 DROP POLICY IF EXISTS "businesses_select_own" ON businesses;
 DROP POLICY IF EXISTS "businesses_update_own" ON businesses;
+DROP POLICY IF EXISTS "businesses_policy" ON businesses;
 
 CREATE POLICY "businesses_policy" ON businesses
     FOR ALL 

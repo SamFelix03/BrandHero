@@ -1,11 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createPublicClient, http } from 'viem'
-import { mainnet } from 'viem/chains'
+import { getEnsAddress } from 'viem/ens'
+import { mainnet, sepolia } from 'viem/chains'
 
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json()
     const { ens_domain, wallet_address } = body
+
+    console.log('Received request:', { ens_domain, wallet_address })
 
     if (!ens_domain || !wallet_address) {
       return NextResponse.json(
@@ -14,24 +17,22 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Validate ENS domain format
-    if (!ens_domain.endsWith('.eth')) {
-      return NextResponse.json(
-        { error: 'Invalid ENS domain format. Domain must end with .eth' },
-        { status: 400 }
-      )
-    }
-
     const publicClient = createPublicClient({
-      chain: mainnet,
+      chain: sepolia,
       transport: http()
     })
 
-    const resolvedAddress = await publicClient.getEnsAddress({
+    console.log('Resolving ENS domain:', ens_domain)
+    
+    // Use viem's built-in getEnsAddress which handles CCIP-Read
+    const resolvedAddress = await getEnsAddress(publicClient, {
       name: ens_domain
     })
 
+    console.log('Resolved address:', resolvedAddress)
+
     if (!resolvedAddress) {
+      console.log('Domain did not resolve to any address')
       return NextResponse.json(
         { error: 'ENS domain not found or does not resolve to any address' },
         { status: 400 }

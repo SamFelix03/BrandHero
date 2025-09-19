@@ -156,13 +156,14 @@ export const NETWORK_CONFIG = {
   blockExplorer: "https://sepolia.arbiscan.io"
 } as const
 
-// Predefined reward templates available to all businesses
-export const REWARD_TEMPLATES = [
+// Web2 reward templates (available to all businesses)
+export const WEB2_REWARD_TEMPLATES = [
   {
     id: 1,
-    name: "Social Media Boost",
-    description: "50 points + 10% discount voucher for social media engagement",
+    name: "Social Share Bonus",
+    description: "50 points + 10% discount for sharing on social media",
     rewardType: "WEB2_VOUCHER" as const,
+    category: "web2",
     pointsValue: 50,
     voucherMetadata: JSON.stringify({
       discountPercentage: 10,
@@ -177,26 +178,33 @@ export const REWARD_TEMPLATES = [
   },
   {
     id: 2,
-    name: "Referral Bonus",
-    description: "100 points for successful customer referrals",
-    rewardType: "NONE" as const,
-    pointsValue: 100,
-    voucherMetadata: "",
-    validityPeriod: 0,
+    name: "Customer Referral",
+    description: "75 points + 15% discount for successful referrals",
+    rewardType: "WEB2_VOUCHER" as const,
+    category: "web2",
+    pointsValue: 75,
+    voucherMetadata: JSON.stringify({
+      discountPercentage: 15,
+      validFor: "next purchase",
+      terms: "Valid for 60 days, applies when referred friend makes first purchase",
+      excludes: ["gift cards"]
+    }),
+    validityPeriod: 60 * 24 * 60 * 60, // 60 days
     tokenAddress: "0x0000000000000000000000000000000000000000",
     tokenAmount: 0,
     nftMetadata: ""
   },
   {
     id: 3,
-    name: "Review Reward",
-    description: "25 points + 5% discount for leaving honest reviews",
+    name: "Review & Rating",
+    description: "25 points + 5% discount for verified reviews",
     rewardType: "WEB2_VOUCHER" as const,
+    category: "web2",
     pointsValue: 25,
     voucherMetadata: JSON.stringify({
       discountPercentage: 5,
       validFor: "next purchase",
-      terms: "Valid for 14 days from issuance",
+      terms: "Valid for 14 days, requires verified purchase",
       excludes: []
     }),
     validityPeriod: 14 * 24 * 60 * 60, // 14 days
@@ -206,9 +214,10 @@ export const REWARD_TEMPLATES = [
   },
   {
     id: 4,
-    name: "Loyalty Points",
-    description: "Standard loyalty points for various activities",
+    name: "Newsletter Signup",
+    description: "20 points for joining the newsletter community",
     rewardType: "NONE" as const,
+    category: "web2",
     pointsValue: 20,
     voucherMetadata: "",
     validityPeriod: 0,
@@ -218,39 +227,79 @@ export const REWARD_TEMPLATES = [
   },
   {
     id: 5,
-    name: "First Purchase",
-    description: "75 points + 15% welcome discount for new customers",
+    name: "First Purchase Welcome",
+    description: "100 points + 20% welcome discount for new customers",
     rewardType: "WEB2_VOUCHER" as const,
-    pointsValue: 75,
+    category: "web2",
+    pointsValue: 100,
     voucherMetadata: JSON.stringify({
-      discountPercentage: 15,
-      validFor: "first purchase",
-      terms: "Valid for 7 days, new customers only",
-      excludes: ["gift cards", "sale items"]
+      discountPercentage: 20,
+      validFor: "first purchase only",
+      terms: "Valid for 7 days, new customers only, minimum purchase $25",
+      excludes: ["gift cards", "sale items", "subscriptions"]
     }),
     validityPeriod: 7 * 24 * 60 * 60, // 7 days
     tokenAddress: "0x0000000000000000000000000000000000000000",
     tokenAmount: 0,
     nftMetadata: ""
-  },
+  }
+] as const
+
+// Web3 reward templates (only for token issuing entities)
+export const WEB3_REWARD_TEMPLATES = [
   {
     id: 6,
-    name: "Token Reward",
-    description: "Points + token airdrop for Web3 businesses",
+    name: "Token Airdrop",
+    description: "50 points + 100 project tokens for community engagement",
     rewardType: "TOKEN_AIRDROP" as const,
-    pointsValue: 30,
+    category: "web3",
+    pointsValue: 50,
     voucherMetadata: "",
     validityPeriod: 0,
-    tokenAddress: "0x0000000000000000000000000000000000000000", // To be set by business
-    tokenAmount: 100, // Default amount, can be customized
+    tokenAddress: "0x0000000000000000000000000000000000000000", // Set by business
+    tokenAmount: 100,
     nftMetadata: ""
   },
   {
     id: 7,
-    name: "Achievement NFT",
-    description: "Points + commemorative NFT for special achievements",
+    name: "Governance NFT",
+    description: "75 points + voting rights NFT for active community members",
     rewardType: "NFT_REWARD" as const,
-    pointsValue: 150,
+    category: "web3",
+    pointsValue: 75,
+    voucherMetadata: "",
+    validityPeriod: 0,
+    tokenAddress: "0x0000000000000000000000000000000000000000",
+    tokenAmount: 0,
+    nftMetadata: JSON.stringify({
+      category: "governance",
+      utility: "voting_rights",
+      attributes: [
+        {"trait_type": "Voting Power", "value": "1"},
+        {"trait_type": "Member Tier", "value": "Standard"}
+      ]
+    })
+  },
+  {
+    id: 8,
+    name: "Staking Bonus",
+    description: "30 points + 50 bonus tokens for staking participation",
+    rewardType: "TOKEN_AIRDROP" as const,
+    category: "web3",
+    pointsValue: 30,
+    voucherMetadata: "",
+    validityPeriod: 0,
+    tokenAddress: "0x0000000000000000000000000000000000000000", // Set by business
+    tokenAmount: 50,
+    nftMetadata: ""
+  },
+  {
+    id: 9,
+    name: "Achievement Badge",
+    description: "40 points + commemorative NFT for milestones",
+    rewardType: "NFT_REWARD" as const,
+    category: "web3",
+    pointsValue: 40,
     voucherMetadata: "",
     validityPeriod: 0,
     tokenAddress: "0x0000000000000000000000000000000000000000",
@@ -258,17 +307,35 @@ export const REWARD_TEMPLATES = [
     nftMetadata: JSON.stringify({
       category: "achievement",
       rarity: "common",
-      attributes: []
+      attributes: [
+        {"trait_type": "Achievement Type", "value": "Community"},
+        {"trait_type": "Date Earned", "value": "dynamic"}
+      ]
     })
+  },
+  {
+    id: 10,
+    name: "Liquidity Provider",
+    description: "150 points + 200 LP rewards for providing liquidity",
+    rewardType: "TOKEN_AIRDROP" as const,
+    category: "web3",
+    pointsValue: 150,
+    voucherMetadata: "",
+    validityPeriod: 0,
+    tokenAddress: "0x0000000000000000000000000000000000000000", // Set by business
+    tokenAmount: 200,
+    nftMetadata: ""
   }
 ] as const
+
+// Combined reward templates
+export const REWARD_TEMPLATES = [...WEB2_REWARD_TEMPLATES, ...WEB3_REWARD_TEMPLATES] as const
 
 // Default values for forms
 export const DEFAULT_VALUES = {
   BOUNTY: {
     maxCompletions: 0, // unlimited
-    expiry: Math.floor(Date.now() / 1000) + (30 * 24 * 60 * 60), // 30 days from now
-    rewardTemplateId: 1 // Default to first reward template
+    expiry: Math.floor(Date.now() / 1000) + (30 * 24 * 60 * 60) // 30 days from now
   },
   PRIZE: {
     pointsCost: 100,

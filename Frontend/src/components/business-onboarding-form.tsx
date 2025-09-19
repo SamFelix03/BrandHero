@@ -87,6 +87,7 @@ export default function BusinessOnboardingForm({ walletAddress }: BusinessOnboar
       })
 
       const result = await response.json()
+      console.log('ENS verification response:', result)
       
       if (result.success) {
         setEnsVerified(true)
