@@ -1,11 +1,26 @@
 "use client"
 
+import { useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import { useAuthStore } from '@/stores/auth-store'
 import ShaderBackground from '../../components/shader-background'
 import DashboardHeader from '../../components/dashboard-header'
 
 export default function BusinessDashboard() {
+  const router = useRouter()
   const { authenticated, user, business, businessLoading } = useAuthStore()
+
+  useEffect(() => {
+    // Enforce contract deployment requirement
+    if (!businessLoading && authenticated && business) {
+      if (!business.smart_contract_address) {
+        // No contract deployed - redirect to bounty management to complete setup
+        router.push('/bounty-management')
+      }
+    } else if (!businessLoading && !authenticated) {
+      router.push('/business-landing')
+    }
+  }, [authenticated, business, businessLoading, router])
 
   if (!authenticated) {
     return (
@@ -43,6 +58,11 @@ export default function BusinessDashboard() {
         </main>
       </ShaderBackground>
     )
+  }
+
+  // Prevent access if no contract is deployed
+  if (!business?.smart_contract_address) {
+    return null // Will redirect to bounty management
   }
 
   return (

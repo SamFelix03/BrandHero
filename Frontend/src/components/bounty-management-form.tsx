@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { REWARD_TYPES, DEFAULT_VALUES, VALIDATION } from '@/lib/constants'
+import { REWARD_TYPES, DEFAULT_VALUES, VALIDATION, REWARD_TEMPLATES, WEB2_REWARD_TEMPLATES } from '@/lib/constants'
 
 interface Business {
   id: string
@@ -11,10 +11,10 @@ interface Business {
   location?: string
   website?: string
   ens_domain?: string
+  is_token_issuer?: boolean
 }
 
-interface RewardTemplate {
-  id?: number
+interface RewardData {
   name: string
   description: string
   rewardType: keyof typeof REWARD_TYPES
@@ -30,7 +30,7 @@ interface Bounty {
   id?: number
   title: string
   description: string
-  rewardTemplate: RewardTemplate
+  rewardData?: RewardData
   expiry: number
   maxCompletions: number
   suggested?: boolean
@@ -78,10 +78,17 @@ export default function BountyManagementForm({ business, walletAddress }: Bounty
       const result = await response.json()
       
       if (result.success) {
-        setBounties(result.suggestedBounties)
-        // Add some default prizes
+        // AI bounties come without reward data - business owner will select rewards
+        // Give them unique IDs so they can be edited properly
+        setBounties(result.suggestedBounties.map((bounty: any, index: number) => ({
+          ...bounty,
+          id: Date.now() + index, // Assign unique ID to prevent duplicates when editing
+          rewardData: undefined // Ensure no reward data from AI
+        })))
+        // Add some default prizes with IDs
         setPrizes([
           {
+            id: Date.now() + 1000,
             name: "Free Coffee",
             description: "Redeem for a complimentary coffee of your choice",
             pointsCost: 100,
@@ -89,6 +96,7 @@ export default function BountyManagementForm({ business, walletAddress }: Bounty
             metadata: JSON.stringify({ category: "beverage", restrictions: "one per day" })
           },
           {
+            id: Date.now() + 1001,
             name: "VIP Status",
             description: "Get VIP treatment and skip the line for a month",
             pointsCost: 500,
@@ -107,17 +115,7 @@ export default function BountyManagementForm({ business, walletAddress }: Bounty
   const createNewBounty = (): Bounty => ({
     title: "",
     description: "",
-    rewardTemplate: {
-      name: "",
-      description: "",
-      rewardType: "NONE",
-      pointsValue: DEFAULT_VALUES.REWARD.pointsValue,
-      voucherMetadata: "",
-      validityPeriod: DEFAULT_VALUES.REWARD.validityPeriod,
-      tokenAddress: "0x0000000000000000000000000000000000000000",
-      tokenAmount: 0,
-      nftMetadata: ""
-    },
+    rewardData: undefined,
     expiry: DEFAULT_VALUES.BOUNTY.expiry,
     maxCompletions: DEFAULT_VALUES.BOUNTY.maxCompletions
   })
@@ -173,26 +171,80 @@ export default function BountyManagementForm({ business, walletAddress }: Bounty
   const deployContract = async () => {
     setDeploying(true)
     try {
-      // Call deployment API
-      const response = await fetch('/api/deploy-business', {
+      // Step 1: Deploy business contract
+      const deployResponse = await fetch('/api/deploy-business', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           business,
-          bounties,
-          prizes,
           walletAddress
         })
       })
 
-      const result = await response.json()
+      const deployResult = await deployResponse.json()
       
-      if (result.success) {
-        // Redirect to dashboard
-        router.push('/business-dashboard')
-      } else {
-        alert('Deployment failed: ' + result.error)
+      if (!deployResult.success) {
+        alert('Contract deployment failed: ' + deployResult.error)
+        return
       }
+
+      const contractAddress = deployResult.contractAddress
+
+      // Step 2: Add bounties with embedded reward data
+      for (const bounty of bounties) {
+        if (!bounty.rewardData) continue
+
+        const bountyResponse = await fetch('/api/add-bounty', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contractAddress,
+            bounty: {
+              title: bounty.title,
+              description: bounty.description,
+              expiry: bounty.expiry,
+              maxCompletions: bounty.maxCompletions,
+              rewardData: bounty.rewardData
+            },
+            walletAddress
+          })
+        })
+
+        const bountyResult = await bountyResponse.json()
+        if (!bountyResult.success) {
+          console.error('Failed to add bounty:', bounty.title, bountyResult.error)
+          // Continue with other bounties instead of failing completely
+        }
+      }
+
+      // Step 3: Add prizes
+      for (const prize of prizes) {
+        const prizeResponse = await fetch('/api/add-prize', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contractAddress,
+            prize: {
+              name: prize.name,
+              description: prize.description,
+              pointsCost: prize.pointsCost,
+              maxClaims: prize.maxClaims,
+              metadata: prize.metadata || ""
+            },
+            walletAddress
+          })
+        })
+
+        const prizeResult = await prizeResponse.json()
+        if (!prizeResult.success) {
+          console.error('Failed to add prize:', prize.name, prizeResult.error)
+          // Continue with other prizes instead of failing completely
+        }
+      }
+
+      // Success - redirect to dashboard
+      router.push('/business-dashboard')
+      
     } catch (error) {
       console.error('Deployment error:', error)
       alert('Deployment failed. Please try again.')
@@ -307,7 +359,7 @@ export default function BountyManagementForm({ business, walletAddress }: Bounty
         <button
           onClick={deployContract}
           disabled={deploying || (bounties.length === 0 && prizes.length === 0)}
-          className="px-8 py-4 bg-green-600 hover:bg-green-700 disabled:bg-green-600/50 text-white rounded-lg font-medium text-lg transition-colors disabled:cursor-not-allowed"
+          className="px-8 py-4 bg-white hover:bg-white-700 disabled:bg-white-600/50 text-black rounded-lg font-medium text-lg transition-colors disabled:cursor-not-allowed"
         >
           {deploying ? 'Deploying Smart Contract...' : 'Deploy Business Contract'}
         </button>
@@ -320,6 +372,7 @@ export default function BountyManagementForm({ business, walletAddress }: Bounty
       {editingBounty && (
         <BountyEditModal
           bounty={editingBounty}
+          business={business}
           onSave={saveBounty}
           onCancel={() => {
             setEditingBounty(null)
@@ -365,18 +418,24 @@ function BountyCard({
       <p className="text-white/70 text-sm mb-4">{bounty.description}</p>
       
       <div className="space-y-2 mb-4">
-        <div className="flex items-center justify-between text-sm">
-          <span className="text-white/60">Reward:</span>
-          <span className="text-white">{bounty.rewardTemplate.name}</span>
-        </div>
-        <div className="flex items-center justify-between text-sm">
-          <span className="text-white/60">Points:</span>
-          <span className="text-white">{bounty.rewardTemplate.pointsValue}</span>
-        </div>
-        <div className="flex items-center justify-between text-sm">
-          <span className="text-white/60">Type:</span>
-          <span className="text-white capitalize">{bounty.rewardTemplate.rewardType.replace('_', ' ')}</span>
-        </div>
+        {bounty.rewardData ? (
+          <>
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-white/60">Reward:</span>
+              <span className="text-white">{bounty.rewardData.name}</span>
+            </div>
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-white/60">Points:</span>
+              <span className="text-white">{bounty.rewardData.pointsValue}</span>
+            </div>
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-white/60">Type:</span>
+              <span className="text-white capitalize">{bounty.rewardData.rewardType.replace('_', ' ')}</span>
+            </div>
+          </>
+        ) : (
+          <div className="text-yellow-400 text-sm">⚠️ No reward selected</div>
+        )}
       </div>
 
       <div className="flex items-center justify-between">
@@ -446,10 +505,12 @@ function PrizeCard({
 // Bounty Edit Modal Component
 function BountyEditModal({ 
   bounty, 
+  business,
   onSave, 
   onCancel 
 }: { 
   bounty: Bounty
+  business: Business
   onSave: (bounty: Bounty) => void
   onCancel: () => void 
 }) {
@@ -457,7 +518,7 @@ function BountyEditModal({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    if (formData.title.trim() && formData.description.trim() && formData.rewardTemplate.name.trim()) {
+    if (formData.title.trim() && formData.description.trim() && formData.rewardData) {
       onSave(formData)
     }
   }
@@ -494,69 +555,67 @@ function BountyEditModal({
             />
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-white font-medium mb-2">Reward Name</label>
-              <input
-                type="text"
-                value={formData.rewardTemplate.name}
-                onChange={(e) => setFormData(prev => ({ 
-                  ...prev, 
-                  rewardTemplate: { ...prev.rewardTemplate, name: e.target.value }
-                }))}
-                className="w-full px-4 py-3 bg-white/10 border border-white/30 rounded-lg text-white placeholder-white/60 focus:outline-none focus:border-white/50"
-                placeholder="e.g., 10% Discount"
-                required
-              />
-            </div>
-
-            <div>
-              <label className="block text-white font-medium mb-2">Points Value</label>
-              <input
-                type="number"
-                min={VALIDATION.MIN_POINTS}
-                max={VALIDATION.MAX_POINTS}
-                value={formData.rewardTemplate.pointsValue}
-                onChange={(e) => setFormData(prev => ({ 
-                  ...prev, 
-                  rewardTemplate: { ...prev.rewardTemplate, pointsValue: parseInt(e.target.value) || 0 }
-                }))}
-                className="w-full px-4 py-3 bg-white/10 border border-white/30 rounded-lg text-white placeholder-white/60 focus:outline-none focus:border-white/50"
-                required
-              />
-            </div>
-          </div>
-
           <div>
-            <label className="block text-white font-medium mb-2">Reward Type</label>
+            <label className="block text-white font-medium mb-2">Select Reward Template</label>
+            {business.is_token_issuer ? (
+              <p className="text-blue-400 text-sm mb-2">
+                🔹 Web3 enabled: All reward types available (Web2 + Web3)
+              </p>
+            ) : (
+              <p className="text-yellow-400 text-sm mb-2">
+                🔸 Web2 only: Vouchers and points available (upgrade to token issuer for Web3 rewards)
+              </p>
+            )}
             <select
-              value={formData.rewardTemplate.rewardType}
-              onChange={(e) => setFormData(prev => ({ 
-                ...prev, 
-                rewardTemplate: { ...prev.rewardTemplate, rewardType: e.target.value as keyof typeof REWARD_TYPES }
-              }))}
+              value={formData.rewardData ? `${formData.rewardData.name}` : ''}
+              onChange={(e) => {
+                const selectedTemplate = (business.is_token_issuer ? REWARD_TEMPLATES : WEB2_REWARD_TEMPLATES)
+                  .find(t => t.name === e.target.value)
+                if (selectedTemplate) {
+                  setFormData(prev => ({ 
+                    ...prev, 
+                    rewardData: {
+                      name: selectedTemplate.name,
+                      description: selectedTemplate.description,
+                      rewardType: selectedTemplate.rewardType,
+                      pointsValue: selectedTemplate.pointsValue,
+                      voucherMetadata: selectedTemplate.voucherMetadata,
+                      validityPeriod: selectedTemplate.validityPeriod,
+                      tokenAddress: selectedTemplate.tokenAddress,
+                      tokenAmount: selectedTemplate.tokenAmount,
+                      nftMetadata: selectedTemplate.nftMetadata
+                    }
+                  }))
+                } else {
+                  setFormData(prev => ({ ...prev, rewardData: undefined }))
+                }
+              }}
               className="w-full px-4 py-3 bg-white/10 border border-white/30 rounded-lg text-white focus:outline-none focus:border-white/50"
+              required
             >
-              <option value="NONE">Points Only</option>
-              <option value="WEB2_VOUCHER">Web2 Voucher (NFT)</option>
-              <option value="TOKEN_AIRDROP">Token Airdrop</option>
-              <option value="NFT_REWARD">NFT Reward</option>
+              <option value="">Choose a reward...</option>
+              {(business.is_token_issuer ? REWARD_TEMPLATES : WEB2_REWARD_TEMPLATES).map((template) => (
+                <option key={template.id} value={template.name}>
+                  {template.name} ({template.pointsValue} pts, {template.rewardType.replace('_', ' ').toLowerCase()})
+                </option>
+              ))}
             </select>
           </div>
 
-          {formData.rewardTemplate.rewardType === 'WEB2_VOUCHER' && (
-            <div>
-              <label className="block text-white font-medium mb-2">Voucher Details (JSON)</label>
-              <textarea
-                value={formData.rewardTemplate.voucherMetadata}
-                onChange={(e) => setFormData(prev => ({ 
-                  ...prev, 
-                  rewardTemplate: { ...prev.rewardTemplate, voucherMetadata: e.target.value }
-                }))}
-                className="w-full px-4 py-3 bg-white/10 border border-white/30 rounded-lg text-white placeholder-white/60 focus:outline-none focus:border-white/50"
-                placeholder='{"discountPercentage": 10, "terms": "Valid for 30 days"}'
-                rows={2}
-              />
+          {formData.rewardData && (
+            <div className="bg-white/5 border border-white/10 rounded-lg p-4">
+              <h4 className="text-white font-medium mb-2">Reward Preview</h4>
+              <p className="text-white/70 text-sm mb-2">{formData.rewardData.description}</p>
+              <div className="text-xs text-white/50 space-y-1">
+                <div>Points: {formData.rewardData.pointsValue}</div>
+                <div>Type: {formData.rewardData.rewardType.replace('_', ' ').toLowerCase()}</div>
+                {formData.rewardData.rewardType === 'WEB2_VOUCHER' && formData.rewardData.voucherMetadata && (
+                  <div>Voucher: {JSON.parse(formData.rewardData.voucherMetadata || '{}').discountPercentage || 0}% discount</div>
+                )}
+                {formData.rewardData.rewardType === 'TOKEN_AIRDROP' && (
+                  <div>Token Amount: {formData.rewardData.tokenAmount}</div>
+                )}
+              </div>
             </div>
           )}
 
