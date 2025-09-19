@@ -79,6 +79,8 @@ export async function POST(request: NextRequest) {
 
     // Extract deployed contract address from event logs
     let contractAddress: string | undefined
+    
+    console.log('Processing', deployReceipt.logs.length, 'logs from deployment transaction')
 
     for (const log of deployReceipt.logs) {
       try {
@@ -89,13 +91,17 @@ export async function POST(request: NextRequest) {
           topics: log.topics
         })
         
+        console.log('Decoded event:', decoded.eventName)
+        console.log('Event args:', JSON.stringify(decoded.args, null, 2))
+        
         if (decoded.eventName === 'BusinessContractDeployed') {
-          //@ts-ignore
-          contractAddress = decoded.args.contractAddress // contractAddress is the second parameter
+          // Access contractAddress from the decoded event args
+          contractAddress = decoded.args.contractAddress as string
+          console.log('Extracted contract address from event:', contractAddress)
           break
         }
       } catch (e) {
-        // Skip logs that don't match our event
+        console.log('Failed to decode log:', e instanceof Error ? e.message : 'Unknown error')
         continue
       }
     }
