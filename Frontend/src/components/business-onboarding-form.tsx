@@ -110,7 +110,6 @@ export default function BusinessOnboardingForm({ walletAddress }: BusinessOnboar
       const result = await response.json()
       
       if (result.success) {
-        // Redirect to dashboard
         router.push('/business-dashboard')
       } else {
         console.error('Submission failed:', result.error)
@@ -245,15 +244,31 @@ export default function BusinessOnboardingForm({ walletAddress }: BusinessOnboar
         {/* Token Issuer */}
         <div className="mb-4">
           <div className="flex items-center gap-3">
-            <input
-              type="checkbox"
-              id="is_token_issuer"
-              name="is_token_issuer"
-              checked={formData.is_token_issuer}
-              onChange={handleInputChange}
-              className="w-4 h-4 text-white bg-white/5 border-white/20 rounded focus:ring-white/40"
-            />
-            <label htmlFor="is_token_issuer" className="text-white font-medium">
+            <div className="relative">
+              <input
+                type="checkbox"
+                id="is_token_issuer"
+                name="is_token_issuer"
+                checked={formData.is_token_issuer}
+                onChange={handleInputChange}
+                className="sr-only"
+              />
+              <label 
+                htmlFor="is_token_issuer" 
+                className={`flex items-center justify-center w-5 h-5 rounded border-2 cursor-pointer transition-all duration-200 ${
+                  formData.is_token_issuer 
+                    ? 'bg-white border-white' 
+                    : 'bg-transparent border-white/40 hover:border-white/60'
+                }`}
+              >
+                {formData.is_token_issuer && (
+                  <svg className="w-3 h-3 text-black" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                  </svg>
+                )}
+              </label>
+            </div>
+            <label htmlFor="is_token_issuer" className="text-white font-medium cursor-pointer">
               I have a token/crypto project (enables Web3 rewards)
             </label>
           </div>

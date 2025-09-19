@@ -25,22 +25,17 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    // Insert business data
-    const { data, error } = await supabase
-      .from('businesses')
-      .insert({
-        wallet_address,
-        business_name,
-        description,
-        location,
-        website,
-        social_links: social_links || {},
-        is_token_issuer: is_token_issuer || false,
-        token_contract_address,
-        profile_picture_url
-      })
-      .select()
-      .single()
+    const { data, error } = await supabase.rpc('insert_business_with_context', {
+      p_wallet_address: wallet_address,
+      p_business_name: business_name,
+      p_description: description || null,
+      p_location: location || null,
+      p_website: website || null,
+      p_social_links: social_links || {},
+      p_is_token_issuer: is_token_issuer || false,
+      p_token_contract_address: token_contract_address || null,
+      p_profile_picture_url: profile_picture_url || null
+    })
 
     if (error) {
       console.error('Supabase error:', error)
@@ -72,11 +67,10 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    const { data, error } = await supabase
-      .from('businesses')
-      .select('*')
-      .eq('wallet_address', wallet_address)
-      .single()
+    // Set RLS context and fetch business
+    const { data, error } = await supabase.rpc('get_business_with_context', {
+      p_wallet_address: wallet_address
+    })
 
     if (error && error.code !== 'PGRST116') { // PGRST116 is "not found"
       console.error('Supabase error:', error)
