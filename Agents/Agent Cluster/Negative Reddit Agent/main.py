@@ -20,7 +20,7 @@ load_dotenv()
 # Set your API keys and endpoints
 ASI_ONE_API_KEY = os.environ.get("ASI_ONE_API_KEY")
 AGENTVERSE_API_KEY = os.environ.get("AGENTVERSE_API_KEY")
-REDDIT_MCP_ENDPOINT = os.environ.get("REDDIT_MCP", "http://127.0.0.1:8001/scrape-reddit-posts")
+REDDIT_MCP_ENDPOINT = os.environ.get("REDDIT_MCP", "https://redditmcp-739298578243.us-central1.run.app/scrape-reddit-posts")
 
 if not ASI_ONE_API_KEY:
     raise ValueError("Please set ASI_ONE_API_KEY environment variable")
@@ -210,7 +210,7 @@ MOST IMPORTANT: Talk about all the negative content obtained from the reddit pos
 
             # Let ASI:One decide whether to use the tool based on reasoning
             payload = {
-                "model": "asi1-extended",
+                "model": "asi1-mini",
                 "messages": messages,
                 "tools": [reddit_tool],
                 "tool_choice": "auto",  # Let the model decide intelligently
