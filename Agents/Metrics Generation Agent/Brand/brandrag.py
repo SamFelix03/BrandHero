@@ -12,13 +12,23 @@ class BrandRAG:
     def get_all_brands(self) -> List[str]:
         """Get all brands available in the knowledge graph."""
         try:
-            response = requests.get(f"{self.kg_base_url}/kg/get_all_brands")
+            url = f"{self.kg_base_url}/kg/get_all_brands"
+            print(f"🌐 Making request to: {url}")
+            response = requests.get(url)
+            print(f"📡 Response status: {response.status_code}")
+            print(f"📡 Response headers: {dict(response.headers)}")
+            
             if response.status_code == 200:
                 data = response.json()
-                return data.get("brands", [])
+                print(f"📊 Response data: {data}")
+                brands = data.get("brands", [])
+                print(f"📊 Extracted brands: {brands}")
+                return brands
+            else:
+                print(f"❌ Error response: {response.text}")
             return []
         except Exception as e:
-            print(f"Error fetching brands: {e}")
+            print(f"❌ Error fetching brands: {e}")
             return []
     
     def query_brand_data(self, brand_name: str, data_type: str = None, sentiment: str = None) -> List[str]:
@@ -30,25 +40,52 @@ class BrandRAG:
             if sentiment:
                 params["sentiment"] = sentiment
             
-            response = requests.get(f"{self.kg_base_url}/kg/query_brand_data", params=params)
+            url = f"{self.kg_base_url}/kg/query_brand_data"
+            print(f"🌐 Making request to: {url}")
+            print(f"📤 Request params: {params}")
+            
+            response = requests.get(url, params=params)
+            print(f"📡 Response status: {response.status_code}")
+            
             if response.status_code == 200:
                 data = response.json()
-                return data.get("results", [])
+                print(f"📊 Response data: {data}")
+                results = data.get("results", [])
+                print(f"📊 Extracted results: {len(results)} items")
+                if results:
+                    print(f"📊 Sample result: {results[0][:100]}..." if len(results[0]) > 100 else f"📊 Sample result: {results[0]}")
+                return results
+            else:
+                print(f"❌ Error response: {response.text}")
             return []
         except Exception as e:
-            print(f"Error querying brand data: {e}")
+            print(f"❌ Error querying brand data: {e}")
             return []
     
     def get_brand_summary(self, brand_name: str) -> Dict:
         """Get comprehensive brand summary from knowledge graph."""
         try:
-            response = requests.get(f"{self.kg_base_url}/kg/get_brand_summary", params={"brand_name": brand_name})
+            url = f"{self.kg_base_url}/kg/get_brand_summary"
+            params = {"brand_name": brand_name}
+            print(f"🌐 Making request to: {url}")
+            print(f"📤 Request params: {params}")
+            
+            response = requests.get(url, params=params)
+            print(f"📡 Response status: {response.status_code}")
+            
             if response.status_code == 200:
                 data = response.json()
-                return data.get("summary", {})
+                print(f"📊 Response data: {data}")
+                summary = data.get("summary", {})
+                print(f"📊 Extracted summary: {type(summary)} - {bool(summary)}")
+                if summary:
+                    print(f"📊 Summary keys: {list(summary.keys()) if isinstance(summary, dict) else 'Not a dict'}")
+                return summary
+            else:
+                print(f"❌ Error response: {response.text}")
             return {}
         except Exception as e:
-            print(f"Error getting brand summary: {e}")
+            print(f"❌ Error getting brand summary: {e}")
             return {}
     
     def query_web_results(self, brand_name: str) -> List[str]:
