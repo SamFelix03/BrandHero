@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuthStore } from '@/stores/auth-store'
 import { REWARD_TEMPLATES, WEB2_REWARD_TEMPLATES } from '@/lib/constants'
-import ShaderBackground from '../../components/shader-background'
+import BusinessGradientBackground from '../../components/business-gradient-background'
 import DashboardHeader from '../../components/dashboard-header'
 
 interface ContractBounty {
@@ -67,20 +67,36 @@ interface Prize {
   metadata: string
 }
 
+interface LoyaltyRequest {
+  id: string
+  business_id: string
+  consumer_wallet_address: string
+  consumer_ens_name?: string
+  status: 'pending' | 'approved' | 'rejected'
+  requested_at: string
+  reviewed_at?: string
+  reviewed_by?: string
+  rejection_reason?: string
+  consumer_message?: string
+}
+
 export default function BusinessDashboard() {
   const router = useRouter()
-  const { authenticated, user, business, businessLoading } = useAuthStore()
+  const { authenticated, user, business, businessLoading, ready } = useAuthStore()
   
   // State for contract data
   const [bounties, setBounties] = useState<ContractBounty[]>([])
   const [prizes, setPrizes] = useState<ContractPrize[]>([])
   const [members, setMembers] = useState<ContractMember[]>([])
+  const [loyaltyRequests, setLoyaltyRequests] = useState<LoyaltyRequest[]>([])
   const [loading, setLoading] = useState(true)
+  const [requestsLoading, setRequestsLoading] = useState(false)
+  const [processingRequests, setProcessingRequests] = useState<Set<string>>(new Set())
   
   // Modal states
   const [showAddBounty, setShowAddBounty] = useState(false)
   const [showAddPrize, setShowAddPrize] = useState(false)
-  const [activeTab, setActiveTab] = useState<'members' | 'bounties' | 'analysis' | 'prizes' | 'profile'>('members')
+  const [activeTab, setActiveTab] = useState<'members' | 'bounties' | 'analysis' | 'prizes' | 'requests' | 'profile'>('members')
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
   const [creatingBounty, setCreatingBounty] = useState(false)
   const [creatingBountyStep, setCreatingBountyStep] = useState<'idle' | 'addingTemplate' | 'creatingBounty' | 'done' | 'error'>('idle')
@@ -88,6 +104,7 @@ export default function BusinessDashboard() {
   const [selectedBounty, setSelectedBounty] = useState<ContractBounty | null>(null)
   const [selectedReward, setSelectedReward] = useState<any | null>(null)
   const [loadingReward, setLoadingReward] = useState(false)
+  const anyModalOpen = showAddBounty || showAddPrize || showBountyDetails
 
   const parseJSONSafely = (value: string | undefined | null) => {
     if (!value) return null
@@ -113,6 +130,9 @@ export default function BusinessDashboard() {
   })
 
   useEffect(() => {
+    // Wait for Privy to be ready before making auth decisions
+    if (!ready) return
+    
     // Enforce contract deployment requirement
     if (!businessLoading && authenticated && business) {
       if (!business.smart_contract_address) {
@@ -121,11 +141,12 @@ export default function BusinessDashboard() {
       } else {
         // Contract deployed - fetch bounties and prizes
         fetchContractData()
+        fetchLoyaltyRequests()
       }
     } else if (!businessLoading && !authenticated) {
       router.push('/business-landing')
     }
-  }, [authenticated, business, businessLoading, router])
+  }, [authenticated, business, businessLoading, ready, router])
 
   const fetchContractData = async () => {
     if (!business?.smart_contract_address) return
@@ -161,6 +182,287 @@ export default function BusinessDashboard() {
       setMembers([])
     } finally {
       setLoading(false)
+    }
+  }
+
+  const fetchLoyaltyRequests = async () => {
+    if (!user?.wallet?.address) return
+    
+    try {
+      setRequestsLoading(true)
+      const response = await fetch(`/api/loyalty-requests/business?wallet_address=${user.wallet.address}`)
+      const data = await response.json()
+      
+      if (response.ok) {
+        setLoyaltyRequests(data.requests || [])
+      } else {
+        console.error('Failed to fetch loyalty requests:', data.error)
+      }
+    } catch (error) {
+      console.error('Error fetching loyalty requests:', error)
+    } finally {
+      setRequestsLoading(false)
+    }
+  }
+
+  const handleRequestAction = async (requestId: string, action: 'approved' | 'rejected', rejectionReason?: string) => {
+    if (!user?.wallet?.address || !business?.smart_contract_address) return
+    
+    // Add request to processing set
+    setProcessingRequests(prev => new Set(prev).add(requestId))
+    
+    try {
+      if (action === 'approved') {
+        // Find the request to get consumer details
+        const request = loyaltyRequests.find(r => r.id === requestId)
+        if (!request) {
+          alert('Request not found')
+          return
+        }
+
+        // Step 1: Fetch user profile to get username
+        console.log('Fetching user profile for username...')
+        
+        const profileResponse = await fetch(`/api/user-profiles?wallet_address=${request.consumer_wallet_address}`)
+        const profileData = await profileResponse.json()
+        
+        if (!profileResponse.ok || !profileData.profile?.username) {
+          alert('User profile or username not found. User must complete their profile first.')
+          return
+        }
+        
+        if (!business.ens_domain) {
+          alert('Business ENS domain is required for member approval')
+          return
+        }
+        
+        // Step 2: Generate ENS name from username and business domain
+        const { generateENSSubdomain } = await import('@/lib/ens-utils')
+        const ensName = generateENSSubdomain(profileData.profile.username, business.ens_domain)
+        
+        console.log(`Generated ENS name: ${ensName} for address: ${request.consumer_wallet_address}`)
+        
+        // Step 3: First, prepare ENS subdomain minting transaction
+        console.log('Preparing ENS subdomain minting...')
+        
+        const ensResponse = await fetch('/api/ens/mint-subdomain', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            parentDomain: business.ens_domain,
+            subdomain: profileData.profile.username,
+            userAddress: request.consumer_wallet_address,
+            resolverAddress: "0xeEe706A6Ef4a1f24827a58fB7bE6a07c6F219d1A"
+          })
+        })
+
+        const ensData = await ensResponse.json()
+        
+        if (!ensResponse.ok) {
+          console.error('ENS preparation error:', ensData)
+          alert(`Failed to prepare ENS subdomain: ${ensData.error}`)
+          return
+        }
+
+        // Step 4: Execute ENS transaction using connected wallet
+        console.log('Executing ENS transaction with connected wallet...')
+        
+        try {
+          // Import wallet client utilities
+          const { createWalletClient, custom } = await import('viem')
+          const { sepolia } = await import('viem/chains')
+          
+          // Get the Privy wallet provider
+          if (!user.wallet?.walletClientType) {
+            alert('Please connect your wallet to mint ENS subdomains')
+            return
+          }
+
+          // Check if window.ethereum is available
+          if (typeof window === 'undefined' || !window.ethereum) {
+            alert('Ethereum provider not found. Please make sure your wallet is connected.')
+            return
+          }
+
+          // Check current chain and switch to Sepolia if needed
+          const ethereum = window.ethereum as any
+          const currentChainId = await ethereum.request({ method: 'eth_chainId' })
+          const sepoliaChainId = '0x' + sepolia.id.toString(16) // Convert 11155111 to hex: 0xaa36a7
+          
+          console.log('Current chain ID:', currentChainId)
+          console.log('Required chain ID (Sepolia):', sepoliaChainId)
+          
+          if (currentChainId !== sepoliaChainId) {
+            console.log('Wrong network detected. Switching to Sepolia...')
+            
+            try {
+              // Try to switch to Sepolia
+              await ethereum.request({
+                method: 'wallet_switchEthereumChain',
+                params: [{ chainId: sepoliaChainId }],
+              })
+              
+              console.log('Successfully switched to Sepolia')
+            } catch (switchError: any) {
+              console.error('Failed to switch to Sepolia:', switchError)
+              
+              // If the chain hasn't been added to the user's wallet, add it
+              if (switchError.code === 4902) {
+                try {
+                  await ethereum.request({
+                    method: 'wallet_addEthereumChain',
+                    params: [
+                      {
+                        chainId: sepoliaChainId,
+                        chainName: 'Sepolia Testnet',
+                        rpcUrls: ['https://sepolia.infura.io/v3/'],
+                        nativeCurrency: {
+                          name: 'ETH',
+                          symbol: 'ETH',
+                          decimals: 18,
+                        },
+                        blockExplorerUrls: ['https://sepolia.etherscan.io'],
+                      },
+                    ],
+                  })
+                  console.log('Successfully added and switched to Sepolia')
+                } catch (addError) {
+                  console.error('Failed to add Sepolia network:', addError)
+                  alert('Please manually switch your wallet to Sepolia testnet to mint ENS subdomains')
+                  return
+                }
+              } else {
+                alert('Please switch your wallet to Sepolia testnet to mint ENS subdomains')
+                return
+              }
+            }
+          }
+
+          // Create wallet client with Privy provider (after ensuring we're on Sepolia)
+          const walletClient = createWalletClient({
+            chain: sepolia,
+            transport: custom(window.ethereum as any),
+            account: user.wallet.address as `0x${string}`
+          })
+
+          // Execute the ENS transaction
+          const hash = await walletClient.writeContract({
+            address: ensData.transactionData.to as `0x${string}`,
+            abi: ensData.transactionData.abi,
+            functionName: ensData.transactionData.functionName,
+            args: ensData.transactionData.args
+          })
+
+          console.log('ENS transaction hash:', hash)
+
+          // Step 5: Verify ENS subdomain was created
+          console.log('Verifying ENS subdomain...')
+          
+          const verifyResponse = await fetch('/api/ens/verify-subdomain', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              fullSubdomain: ensData.verificationData.fullSubdomain,
+              expectedOwner: ensData.verificationData.expectedOwner,
+              expectedResolver: ensData.verificationData.expectedResolver,
+              transactionHash: hash
+            })
+          })
+
+          const verifyData = await verifyResponse.json()
+          
+          if (!verifyResponse.ok || !verifyData.verified) {
+            console.error('ENS verification failed:', verifyData)
+            alert(`ENS subdomain creation failed verification: ${verifyData.message}`)
+            return
+          }
+
+          console.log('ENS subdomain verified successfully:', verifyData.subdomain)
+          
+        } catch (ensError: any) {
+          console.error('ENS transaction failed:', ensError)
+          alert(`Failed to mint ENS subdomain: ${ensError.message || 'Transaction failed'}`)
+          return
+        }
+        
+        // Step 6: Only after successful ENS minting, add member to contract
+        console.log('Adding member to contract...')
+        
+        const contractResponse = await fetch('/api/contract/add-member', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contractAddress: business.smart_contract_address,
+            userAddress: request.consumer_wallet_address,
+            ensName: ensName
+          })
+        })
+
+        const contractData = await contractResponse.json()
+        
+        if (!contractResponse.ok) {
+          // Check if the error is because user is already a member
+          if (contractData.error?.includes('already a loyalty member') || 
+              contractData.error?.includes('Member exists')) {
+            console.log('User is already a member, proceeding to update database...')
+            // Continue to database update - this handles the case where contract succeeded
+            // but database update failed previously
+          } else {
+            console.error('Contract error:', contractData)
+            alert(`Failed to add member to contract: ${contractData.error}`)
+            return
+          }
+        } else {
+          console.log('Member added to contract successfully:', contractData.transactionHash)
+        }
+        
+        // Step 7: Update database record (after successful ENS + contract operations)
+        console.log('Updating database record...')
+      }
+
+      const response = await fetch('/api/loyalty-requests/business', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          business_wallet_address: user.wallet.address,
+          request_id: requestId,
+          new_status: action,
+          rejection_reason: rejectionReason
+        })
+      })
+
+      const data = await response.json()
+      
+      if (response.ok) {
+        // Refresh requests and contract data
+        await Promise.all([
+          fetchLoyaltyRequests(),
+          action === 'approved' ? fetchContractData() : Promise.resolve() // Only refresh contract data on approval
+        ])
+        
+        if (action === 'approved') {
+          const request = loyaltyRequests.find(r => r.id === requestId)
+          const profileResponse = await fetch(`/api/user-profiles?wallet_address=${request?.consumer_wallet_address}`)
+          const profileData = await profileResponse.json()
+          const username = profileData.profile?.username || 'user'
+          
+          alert(`Request approved successfully! ENS subdomain ${username}.${business.ens_domain} minted and member added to loyalty program.`)
+        } else {
+          alert(`Request ${action} successfully`)
+        }
+      } else {
+        alert(data.error || `Failed to ${action} request`)
+      }
+    } catch (error) {
+      console.error(`Error ${action} request:`, error)
+      alert(`Failed to ${action} request`)
+    } finally {
+      // Remove request from processing set
+      setProcessingRequests(prev => {
+        const newSet = new Set(prev)
+        newSet.delete(requestId)
+        return newSet
+      })
     }
   }
 
@@ -243,9 +545,24 @@ export default function BusinessDashboard() {
     }
   }
 
+  // Show loading state while Privy is initializing
+  if (!ready) {
+    return (
+      <BusinessGradientBackground logoUrl={business?.profile_picture_url}>
+        <DashboardHeader />
+        <main className="absolute top-20 left-0 right-0 bottom-0 flex items-center justify-center z-20">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-white mx-auto mb-4"></div>
+            <p className="text-white/70">Initializing...</p>
+          </div>
+        </main>
+      </BusinessGradientBackground>
+    )
+  }
+
   if (!authenticated) {
     return (
-      <ShaderBackground>
+      <BusinessGradientBackground logoUrl={business?.profile_picture_url}>
         <DashboardHeader />
         <main className="absolute top-20 left-0 right-0 bottom-0 flex items-center justify-center z-20">
           <div className="text-center max-w-lg px-8">
@@ -263,13 +580,13 @@ export default function BusinessDashboard() {
             </button>
           </div>
         </main>
-      </ShaderBackground>
+      </BusinessGradientBackground>
     )
   }
 
   if (businessLoading) {
     return (
-      <ShaderBackground>
+      <BusinessGradientBackground logoUrl={business?.profile_picture_url}>
         <DashboardHeader />
         <main className="absolute top-20 left-0 right-0 bottom-0 flex items-center justify-center z-20">
           <div className="text-center">
@@ -277,7 +594,7 @@ export default function BusinessDashboard() {
             <p className="text-white/70">Loading your dashboard...</p>
           </div>
         </main>
-      </ShaderBackground>
+      </BusinessGradientBackground>
     )
   }
 
@@ -287,13 +604,13 @@ export default function BusinessDashboard() {
   }
 
   return (
-    <ShaderBackground>
+    <BusinessGradientBackground logoUrl={business?.profile_picture_url}>
       <DashboardHeader 
         business={business || { business_name: 'Loading...', profile_picture_url: '' }} 
         isSidebarCollapsed={isSidebarCollapsed}
         onToggleSidebar={() => setIsSidebarCollapsed(prev => !prev)}
       />
-      <main className="absolute top-20 left-0 right-0 bottom-0 z-20 p-0 overflow-hidden">
+      <main className={`absolute top-20 left-0 right-0 bottom-0 ${anyModalOpen ? 'z-40' : 'z-20'} p-0 overflow-hidden`}>
         <div className="h-full flex">
           {/* Sidebar */}
           <aside className={`${isSidebarCollapsed ? 'w-16' : 'w-64'} shrink-0 h-full border-r border-white/10 bg-white/5 backdrop-blur-sm p-4 transition-all duration-200`}> 
@@ -341,6 +658,21 @@ export default function BusinessDashboard() {
                 {!isSidebarCollapsed && <span>Prize Store</span>}
               </button>
               <button
+                className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center' : 'justify-start gap-3'} px-3 py-2 rounded-lg transition-colors ${activeTab === 'requests' ? 'bg-white text-black' : 'text-white hover:bg-white/10'}`}
+                onClick={() => setActiveTab('requests')}
+                aria-label="Membership Requests"
+              >
+                <svg className={`${isSidebarCollapsed ? 'w-5 h-5' : 'w-4 h-4'} ${activeTab === 'requests' ? 'text-black' : 'text-white/80'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                </svg>
+                {!isSidebarCollapsed && <span>Join Requests</span>}
+                {!isSidebarCollapsed && loyaltyRequests.filter(r => r.status === 'pending').length > 0 && (
+                  <span className="ml-auto bg-red-500 text-white text-xs rounded-full px-2 py-0.5 min-w-[20px] text-center">
+                    {loyaltyRequests.filter(r => r.status === 'pending').length}
+                  </span>
+                )}
+              </button>
+              <button
                 className={`w-full flex items-center ${isSidebarCollapsed ? 'justify-center' : 'justify-start gap-3'} px-3 py-2 rounded-lg transition-colors ${activeTab === 'profile' ? 'bg-white text-black' : 'text-white hover:bg-white/10'}`}
                 onClick={() => setActiveTab('profile')}
                 aria-label="My Profile"
@@ -355,14 +687,14 @@ export default function BusinessDashboard() {
 
           {/* Content */}
           <section className="flex-1 h-full overflow-y-auto p-8">
-            {/* Header Section */}
+          {/* Header Section */}
             <div className="mb-6">
               <h1 className="text-3xl font-light text-white mb-2">
-                Welcome back, <span className="font-medium italic instrument">{business?.business_name}</span>
-              </h1>
+                  Welcome back, <span className="font-medium italic instrument">{business?.business_name}</span>
+                </h1>
               <p className="text-white/70">{business?.description || "Your business dashboard is ready"}</p>
             </div>
-
+            
             {/* Contract status moved to header as clickable link */}
 
             {/* Tab Content */}
@@ -376,7 +708,7 @@ export default function BusinessDashboard() {
                   <div className="text-center py-12">
                     <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-white mx-auto mb-3"></div>
                     <p className="text-white/70 text-sm">Loading members...</p>
-                  </div>
+              </div>
                 ) : members.length === 0 ? (
                   <div className="bg-white/5 border border-white/10 rounded-lg p-6 text-white/70">No members yet.</div>
                 ) : (
@@ -405,18 +737,18 @@ export default function BusinessDashboard() {
               <div>
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-white font-medium text-lg">Bounties</h3>
-                  <button
-                    onClick={() => setShowAddBounty(true)}
+              <button 
+                onClick={() => setShowAddBounty(true)}
                     className="px-4 py-2 bg-white text-black rounded-lg hover:bg-white/90 transition-colors"
-                  >
-                    Create Bounty
-                  </button>
-                </div>
-                {loading ? (
+              >
+                Create Bounty
+              </button>
+            </div>
+              {loading ? (
                   <div className="text-center py-12">
                     <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-white mx-auto mb-3"></div>
                     <p className="text-white/70 text-sm">Loading bounties...</p>
-                  </div>
+                </div>
                 ) : bounties.length === 0 ? (
                   <div className="bg-white/5 border border-white/10 rounded-lg p-6 text-white/70">No bounties yet.</div>
                 ) : (
@@ -463,29 +795,29 @@ export default function BusinessDashboard() {
                         </button>
                       )
                     })}
-                  </div>
-                )}
-              </div>
-            )}
+                    </div>
+                  )}
+                </div>
+              )}
 
             {activeTab === 'analysis' && (
               <div className="bg-white/5 border border-white/10 rounded-lg p-6">
                 <h3 className="text-white font-medium text-lg mb-2">BrandHero Analysis</h3>
                 <p className="text-white/70">Coming soon.</p>
-              </div>
-            )}
+                </div>
+              )}
 
             {activeTab === 'prizes' && (
               <div>
                 <div className="flex items-center justify-between mb-4">
                   <h3 className="text-white font-medium text-lg">Prize Store</h3>
-                  <button
-                    onClick={() => setShowAddPrize(true)}
+              <button 
+                onClick={() => setShowAddPrize(true)}
                     className="px-4 py-2 bg-white text-black rounded-lg hover:bg-white/90 transition-colors"
-                  >
-                    Add Prize
-                  </button>
-                </div>
+              >
+                Add Prize
+              </button>
+            </div>
                 {loading ? (
                   <div className="text-center py-12">
                     <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-white mx-auto mb-3"></div>
@@ -495,13 +827,116 @@ export default function BusinessDashboard() {
                   <div className="bg-white/5 border border-white/10 rounded-lg p-6 text-white/70">No prizes yet.</div>
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {prizes.map((prize) => (
-                      <div key={prize.id} className="bg-white/5 rounded-lg p-4 border border-white/10">
-                        <h4 className="text-white font-medium mb-2">{prize.name}</h4>
+                {prizes.map((prize) => (
+                  <div key={prize.id} className="bg-white/5 rounded-lg p-4 border border-white/10">
+                    <h4 className="text-white font-medium mb-2">{prize.name}</h4>
                         <p className="text-white/70 text-sm mb-3 line-clamp-3">{prize.description}</p>
                         <div className="space-y-2 text-xs">
                           <div className="flex justify-between"><span className="text-white/60">Points Cost</span><span className="text-white font-medium">{prize.pointsCost}</span></div>
                           <div className="flex justify-between"><span className="text-white/60">Claims</span><span className="text-white">{prize.claimed}/{prize.maxClaims === '0' ? '∞' : prize.maxClaims}</span></div>
+                      </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+            </div>
+          )}
+
+            {activeTab === 'requests' && (
+              <div>
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-white font-medium text-lg">Loyalty Program Requests</h3>
+                  <div className="text-white/60 text-sm">
+                    Pending: {loyaltyRequests.filter(r => r.status === 'pending').length}
+                  </div>
+                </div>
+                
+                {requestsLoading ? (
+                  <div className="text-center py-12">
+                    <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-white mx-auto mb-3"></div>
+                    <p className="text-white/70 text-sm">Loading requests...</p>
+                  </div>
+                ) : loyaltyRequests.length === 0 ? (
+                  <div className="bg-white/5 border border-white/10 rounded-lg p-6 text-white/70">
+                    No loyalty program requests yet.
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {loyaltyRequests.map((request) => (
+                      <div key={request.id} className="bg-white/5 rounded-lg p-6 border border-white/10">
+                        <div className="flex items-start justify-between mb-4">
+                          <div className="flex-1">
+                            <div className="flex items-center gap-3 mb-2">
+                              <h4 className="text-white font-medium">
+                                {request.consumer_ens_name || 'Anonymous User'}
+                              </h4>
+                              <span className={`px-2 py-1 rounded-full text-xs ${
+                                request.status === 'pending' ? 'bg-yellow-500/20 text-yellow-300 border border-yellow-500/30' :
+                                request.status === 'approved' ? 'bg-green-500/20 text-green-300 border border-green-500/30' :
+                                'bg-red-500/20 text-red-300 border border-red-500/30'
+                              }`}>
+                                {request.status.toUpperCase()}
+                              </span>
+                            </div>
+                            
+                            <div className="text-white/70 text-sm mb-3 font-mono">
+                              {request.consumer_wallet_address}
+                            </div>
+                            
+                            {request.consumer_message && (
+                              <div className="bg-white/5 border border-white/10 rounded-lg p-3 mb-3">
+                                <div className="text-white/60 text-xs mb-1">Message:</div>
+                                <div className="text-white/90 text-sm">{request.consumer_message}</div>
+                              </div>
+                            )}
+                            
+                            <div className="text-white/60 text-xs">
+                              Requested: {new Date(request.requested_at).toLocaleString()}
+                              {request.reviewed_at && (
+                                <span className="ml-4">
+                                  Reviewed: {new Date(request.reviewed_at).toLocaleString()}
+                                </span>
+                              )}
+                            </div>
+                            
+                            {request.rejection_reason && (
+                              <div className="mt-3 bg-red-500/10 border border-red-500/20 rounded-lg p-3">
+                                <div className="text-red-300 text-xs mb-1">Rejection Reason:</div>
+                                <div className="text-red-200 text-sm">{request.rejection_reason}</div>
+                              </div>
+                            )}
+                          </div>
+                          
+                          {request.status === 'pending' && (
+                            <div className="flex items-center gap-2 ml-4">
+                              {processingRequests.has(request.id) ? (
+                                <div className="flex items-center gap-2 text-white/70 text-sm">
+                                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white/70"></div>
+                                  <span>Processing...</span>
+                                </div>
+                              ) : (
+                                <>
+                                  <button
+                                    onClick={() => handleRequestAction(request.id, 'approved')}
+                                    className="px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition-colors text-sm"
+                                  >
+                                    Approve
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      const reason = prompt('Reason for rejection (optional):')
+                                      if (reason !== null) { // User didn't cancel
+                                        handleRequestAction(request.id, 'rejected', reason || undefined)
+                                      }
+                                    }}
+                                    className="px-4 py-2 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors text-sm"
+                                  >
+                                    Reject
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          )}
                         </div>
                       </div>
                     ))}
@@ -511,33 +946,33 @@ export default function BusinessDashboard() {
             )}
 
             {activeTab === 'profile' && (
-              <div className="bg-white/5 backdrop-blur-sm rounded-xl p-6 border border-white/10">
-                <h3 className="text-white font-medium text-lg mb-4">Business Information</h3>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-                  {business?.location && (
-                    <div>
-                      <span className="text-white/70">Location:</span>
-                      <span className="text-white ml-2">{business.location}</span>
-                    </div>
-                  )}
-                  {business?.website && (
-                    <div>
-                      <span className="text-white/70">Website:</span>
-                      <a href={business.website} target="_blank" rel="noopener noreferrer" className="text-blue-400 ml-2 hover:underline">
-                        {business.website}
-                      </a>
-                    </div>
-                  )}
-                  <div>
-                    <span className="text-white/70">Wallet:</span>
-                    <span className="text-white ml-2 font-mono text-xs">{user?.wallet?.address}</span>
-                  </div>
-                  <div>
-                    <span className="text-white/70">Joined:</span>
-                    <span className="text-white ml-2">{new Date(business?.created_at || '').toLocaleDateString()}</span>
-                  </div>
+          <div className="bg-white/5 backdrop-blur-sm rounded-xl p-6 border border-white/10">
+            <h3 className="text-white font-medium text-lg mb-4">Business Information</h3>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+              {business?.location && (
+                <div>
+                  <span className="text-white/70">Location:</span>
+                  <span className="text-white ml-2">{business.location}</span>
                 </div>
+              )}
+              {business?.website && (
+                <div>
+                  <span className="text-white/70">Website:</span>
+                  <a href={business.website} target="_blank" rel="noopener noreferrer" className="text-blue-400 ml-2 hover:underline">
+                    {business.website}
+                  </a>
+                </div>
+              )}
+              <div>
+                <span className="text-white/70">Wallet:</span>
+                <span className="text-white ml-2 font-mono text-xs">{user?.wallet?.address}</span>
               </div>
+              <div>
+                <span className="text-white/70">Joined:</span>
+                    <span className="text-white ml-2">{new Date(business?.created_at || '').toLocaleDateString()}</span>
+              </div>
+            </div>
+          </div>
             )}
           </section>
         </div>
@@ -641,18 +1076,18 @@ export default function BusinessDashboard() {
                     </div>
                   )}
                   <div className="flex items-center gap-3">
-                    <button
-                      type="button"
-                      onClick={() => setShowAddBounty(false)}
-                      className="px-6 py-2 bg-white/10 text-white rounded-lg hover:bg-white/20 transition-colors"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      onClick={handleCreateBounty}
+                  <button
+                    type="button"
+                    onClick={() => setShowAddBounty(false)}
+                    className="px-6 py-2 bg-white/10 text-white rounded-lg hover:bg-white/20 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={handleCreateBounty}
                       disabled={creatingBounty || !newBounty.title || !newBounty.description || !newBounty.rewardData}
-                      className="px-6 py-2 bg-white text-black rounded-lg hover:bg-white/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
+                    className="px-6 py-2 bg-white text-black rounded-lg hover:bg-white/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
                       {creatingBounty ? 'Processing...' : 'Create Bounty'}
                     </button>
                   </div>
@@ -664,7 +1099,7 @@ export default function BusinessDashboard() {
 
         {/* Bounty Details Modal */}
         {showBountyDetails && selectedBounty && (
-          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="fixed inset-0 bg-black/60 backdrop-blur-md z-[60] flex items-center justify-center p-4">
             <div className="bg-gray-900 rounded-xl p-6 w-full max-w-3xl max-h-[90vh] overflow-y-auto">
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-xl font-medium text-white">Bounty Details</h3>
@@ -673,7 +1108,7 @@ export default function BusinessDashboard() {
                   className="px-4 py-2 bg-white/10 text-white rounded-lg hover:bg白/20 transition-colors"
                 >
                   Close
-                </button>
+                  </button>
               </div>
               <div className="space-y-6">
                 <div className="bg-white/5 border border-white/10 rounded-lg p-4">
@@ -697,23 +1132,44 @@ export default function BusinessDashboard() {
                       <div className="flex justify-between"><span className="text-white/60">Points</span><span className="text-white">{selectedReward.pointsValue}</span></div>
                       {selectedReward.parsedVoucher ? (
                         <div className="text-white/90">
-                          <div className="text-white/60 mb-1">Voucher Details</div>
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-2 text-xs">
-                            {'discountPercentage' in selectedReward.parsedVoucher && (
-                              <div className="flex justify-between"><span className="text-white/60">Discount</span><span className="text-white">{selectedReward.parsedVoucher.discountPercentage}%</span></div>
-                            )}
-                            {'validFor' in selectedReward.parsedVoucher && (
-                              <div className="flex justify-between"><span className="text-white/60">Valid For</span><span className="text-white">{selectedReward.parsedVoucher.validFor}</span></div>
-                            )}
-                            {'terms' in selectedReward.parsedVoucher && (
-                              <div className="md:col-span-2"><span className="text-white/60">Terms:</span> <span className="text-white">{selectedReward.parsedVoucher.terms}</span></div>
-                            )}
-                            {'excludes' in selectedReward.parsedVoucher && Array.isArray(selectedReward.parsedVoucher.excludes) && selectedReward.parsedVoucher.excludes.length > 0 && (
-                              <div className="md:col-span-2">
-                                <span className="text-white/60">Excludes:</span>
-                                <span className="text-white ml-2">{selectedReward.parsedVoucher.excludes.join(', ')}</span>
-                              </div>
-                            )}
+                          <div className="text-white/60 mb-2">Voucher Details</div>
+                          <div className="bg-white/5 border border-white/10 rounded-lg p-3">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs">
+                              {'discountPercentage' in selectedReward.parsedVoucher && (
+                                <div>
+                                  <div className="text-white/60 mb-1">Discount</div>
+                                  <div className="inline-flex items-center px-2 py-0.5 rounded-full bg-green-400/10 text-green-300 border border-green-400/20">
+                                    {selectedReward.parsedVoucher.discountPercentage}% off
+                                  </div>
+                                </div>
+                              )}
+                              {'validFor' in selectedReward.parsedVoucher && (
+                                <div>
+                                  <div className="text-white/60 mb-1">Valid For</div>
+                                  <div className="text-white">{selectedReward.parsedVoucher.validFor}</div>
+                                </div>
+                              )}
+                              {'terms' in selectedReward.parsedVoucher && (
+                                <div className="md:col-span-2">
+                                  <div className="text-white/60 mb-1">Terms</div>
+                                  <div className="text-white/90 bg-black/20 border border-white/10 rounded-md p-2 leading-relaxed">
+                                    {selectedReward.parsedVoucher.terms}
+                                  </div>
+                                </div>
+                              )}
+                              {'excludes' in selectedReward.parsedVoucher && Array.isArray(selectedReward.parsedVoucher.excludes) && selectedReward.parsedVoucher.excludes.length > 0 && (
+                                <div className="md:col-span-2">
+                                  <div className="text-white/60 mb-1">Excludes</div>
+                                  <div className="flex flex-wrap gap-2">
+                                    {selectedReward.parsedVoucher.excludes.map((item: string, idx: number) => (
+                                      <span key={idx} className="px-2 py-0.5 rounded-full bg-white/10 text-white/80 border border-white/15 text-[11px]">
+                                        {item}
+                                      </span>
+                                    ))}
+                                  </div>
+                                </div>
+                              )}
+                            </div>
                           </div>
                         </div>
                       ) : (
@@ -807,6 +1263,6 @@ export default function BusinessDashboard() {
           </div>
         )}
       </main>
-    </ShaderBackground>
+    </BusinessGradientBackground>
   )
 }
