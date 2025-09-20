@@ -6,7 +6,10 @@ from datetime import datetime
 from hyperon import MeTTa, E, S, ValueAtom
 import threading
 import time
+# from pyngrok import ngrok
 
+# Set ngrok authtoken
+# ngrok.set_auth_token("2kEGVmoK5L1A7fSTRJ6k4n7YMkl_3jBZXFdHfibFjz6fh9LAN")
 
 app = FastAPI(title="Brand Research Orchestrator with Knowledge Graph", version="1.0.0")
 
@@ -22,6 +25,8 @@ class OrchestratorResponse(BaseModel):
     positive_reddit_result: str
     negative_social_result: str
     positive_social_result: str
+    metrics_result: str
+    bounty_result: str
     timestamp: str
     kg_storage_status: str
 
@@ -731,6 +736,160 @@ async def research_brand(request: BrandRequest):
                 print(f"❌ Knowledge Graph storage failed: {e}")
                 kg_storage_status = f"Knowledge Graph storage failed: {str(e)}"
             
+            # === 8. METRICS AGENT ===
+            print(f"\n📊 Step 8: Calling Metrics Agent for {brand_name}...")
+            
+            # Keep retrying until we get a successful response
+            attempt = 0
+            while True:
+                attempt += 1
+                try:
+                    print(f"Metrics agent attempt {attempt}")
+                    metrics_response = await client.post(
+                        "https://metricsagent-739298578243.us-central1.run.app/brand/metrics",
+                        json={"brand_name": brand_name}
+                    )
+                    metrics_response.raise_for_status()
+                    metrics_data = metrics_response.json()
+                    
+                    # Check if we got the final result immediately
+                    if metrics_data.get("success") and "metrics" in metrics_data:
+                        # Check if the result contains an error message
+                        if "error" in str(metrics_data).lower() or "500" in str(metrics_data):
+                            print(f"❌ Metrics agent returned error result, retrying in 4 seconds...")
+                            await asyncio.sleep(4)
+                            continue
+                        metrics_result = str(metrics_data)
+                        print(f"✅ Metrics agent completed successfully after {attempt} attempts!")
+                        break
+                    else:
+                        # The agent is still processing, we need to poll for results
+                        print(f"Metrics agent is processing... Status: {metrics_data.get('status', 'unknown')}")
+                        
+                        # Poll for results indefinitely until we get a result
+                        poll_interval = 4
+                        poll_attempt = 0
+                        
+                        while True:
+                            poll_attempt += 1
+                            print(f"Metrics agent polling attempt {poll_attempt}")
+                            await asyncio.sleep(poll_interval)
+                            
+                            # Make another request to check status
+                            poll_response = await client.post(
+                                "https://metricsagent-739298578243.us-central1.run.app/brand/metrics",
+                                json={"brand_name": brand_name}
+                            )
+                            poll_response.raise_for_status()
+                            poll_data = poll_response.json()
+                            
+                            # Check if research is complete
+                            if poll_data.get("success") and "metrics" in poll_data:
+                                # Check if the result contains an error message
+                                if "error" in str(poll_data).lower() or "500" in str(poll_data):
+                                    print(f"❌ Metrics agent polling returned error result, starting over...")
+                                    break  # Break from polling loop to retry from beginning
+                                metrics_result = str(poll_data)
+                                print(f"✅ Metrics agent completed after {poll_attempt} polling attempts!")
+                                break
+                            elif poll_data.get("status") == "error":
+                                print(f"❌ Metrics agent encountered an error, starting over...")
+                                break  # Break from polling loop to retry from beginning
+                            else:
+                                print(f"Still processing... Status: {poll_data.get('status', 'unknown')}")
+                        
+                        # If we got a successful result from polling, break the main retry loop
+                        if 'metrics_result' in locals():
+                            break
+                        
+                except Exception as e:
+                    print(f"❌ Metrics agent request failed: {e}, retrying in 4 seconds...")
+                    await asyncio.sleep(4)
+                    continue
+            
+            # Print the metrics result
+            print(f"\n=== METRICS RESULT FOR {brand_name.upper()} ===")
+            print(metrics_result)
+            print("=" * 50)
+            
+            # === 9. BOUNTY AGENT (with 1 minute delay) ===
+            print(f"\n🎯 Step 9: Waiting 1 minute before calling Bounty Agent for {brand_name}...")
+            print("⏰ Waiting 60 seconds...")
+            await asyncio.sleep(60)  # Wait for 1 minute
+            
+            print(f"\n🎯 Calling Bounty Agent for {brand_name}...")
+            
+            # Keep retrying until we get a successful response
+            attempt = 0
+            while True:
+                attempt += 1
+                try:
+                    print(f"Bounty agent attempt {attempt}")
+                    bounty_response = await client.get(
+                        "https://bountyagent-739298578243.us-central1.run.app/bounties/auto-generated"
+                    )
+                    bounty_response.raise_for_status()
+                    bounty_data = bounty_response.json()
+                    
+                    # Check if we got the final result immediately
+                    if bounty_data.get("success") and "auto_generated_bounties" in bounty_data:
+                        # Check if the result contains an error message
+                        if "error" in str(bounty_data).lower() or "500" in str(bounty_data):
+                            print(f"❌ Bounty agent returned error result, retrying in 4 seconds...")
+                            await asyncio.sleep(4)
+                            continue
+                        bounty_result = str(bounty_data)
+                        print(f"✅ Bounty agent completed successfully after {attempt} attempts!")
+                        break
+                    else:
+                        # The agent is still processing, we need to poll for results
+                        print(f"Bounty agent is processing... Status: {bounty_data.get('status', 'unknown')}")
+                        
+                        # Poll for results indefinitely until we get a result
+                        poll_interval = 4
+                        poll_attempt = 0
+                        
+                        while True:
+                            poll_attempt += 1
+                            print(f"Bounty agent polling attempt {poll_attempt}")
+                            await asyncio.sleep(poll_interval)
+                            
+                            # Make another request to check status
+                            poll_response = await client.get(
+                                "https://bountyagent-739298578243.us-central1.run.app/bounties/auto-generated"
+                            )
+                            poll_response.raise_for_status()
+                            poll_data = poll_response.json()
+                            
+                            # Check if research is complete
+                            if poll_data.get("success") and "auto_generated_bounties" in poll_data:
+                                # Check if the result contains an error message
+                                if "error" in str(poll_data).lower() or "500" in str(poll_data):
+                                    print(f"❌ Bounty agent polling returned error result, starting over...")
+                                    break  # Break from polling loop to retry from beginning
+                                bounty_result = str(poll_data)
+                                print(f"✅ Bounty agent completed after {poll_attempt} polling attempts!")
+                                break
+                            elif poll_data.get("status") == "error":
+                                print(f"❌ Bounty agent encountered an error, starting over...")
+                                break  # Break from polling loop to retry from beginning
+                            else:
+                                print(f"Still processing... Status: {poll_data.get('status', 'unknown')}")
+                        
+                        # If we got a successful result from polling, break the main retry loop
+                        if 'bounty_result' in locals():
+                            break
+                        
+                except Exception as e:
+                    print(f"❌ Bounty agent request failed: {e}, retrying in 4 seconds...")
+                    await asyncio.sleep(4)
+                    continue
+            
+            # Print the bounty result
+            print(f"\n=== BOUNTY RESULT FOR {brand_name.upper()} ===")
+            print(bounty_result)
+            print("=" * 50)
+            
             return OrchestratorResponse(
                 brand_name=brand_name,
                 web_search_result=web_search_result,
@@ -740,6 +899,8 @@ async def research_brand(request: BrandRequest):
                 positive_reddit_result=positive_reddit_result,
                 negative_social_result=negative_social_result,
                 positive_social_result=positive_social_result,
+                metrics_result=metrics_result,
+                bounty_result=bounty_result,
                 timestamp=datetime.now().isoformat(),
                 kg_storage_status=kg_storage_status
             )
