@@ -36,7 +36,7 @@ agent = Agent(
     port=8080,
     seed="bounty suggestion agent seed",
     mailbox=True,
-    endpoint=["http://localhost:8080/submit"]
+    endpoint=["https://bountyagent-739298578243.us-central1.run.app/submit"]
 )
 
 # REST API Models
@@ -773,6 +773,9 @@ if __name__ == '__main__':
     print("🤖 A2A Communication enabled - will receive metrics from brand-metrics-agent")
     print("🚀 AUTO-GENERATION ENABLED - bounties generated immediately upon receiving metrics!")
     print(f"🔗 Bounty Agent Address for A2A: {agent.address}")
+    print(f"🌐 Hosted Endpoint: https://bountyagent-739298578243.us-central1.run.app/submit")
+    print(f"📋 For brand-metrics-agent configuration:")
+    print(f"   BOUNTY_AGENT_ADDRESS={agent.address}")
     print("\n🌐 REST API Endpoints:")
     print("POST http://localhost:8080/bounty/generate")
     print("Body: {\"brand_name\": \"Tesla\"}")
