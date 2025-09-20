@@ -7,7 +7,7 @@ class BrandRAG:
     def __init__(self, metta_instance):
         self.metta = metta_instance
         # Your ngrok URL - update this with your current ngrok URL
-        self.kg_base_url = "https://streaming-739298578243.us-central1.run.app"
+        self.kg_base_url = "https://orchestrator-739298578243.us-central1.run.app"
     
     def get_all_brands(self) -> List[str]:
         """Get all brands available in the knowledge graph."""
