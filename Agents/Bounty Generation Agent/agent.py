@@ -158,7 +158,7 @@ def get_brand_data_from_research_agent(brand_name: str) -> Dict:
     """Fetch brand data from the brand-research-agent."""
     try:
         # Call the brand research agent's summary endpoint
-        url = "http://localhost:8006/brand/summary"
+        url = "https://orchestrator-739298578243.us-central1.run.app/brand/summary"
         payload = {"brand_name": brand_name}
         
         print(f"🌐 Fetching brand data from research agent: {url}")
