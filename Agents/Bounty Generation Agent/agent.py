@@ -257,6 +257,9 @@ Return your analysis in JSON format:
     
     try:
         response = llm.create_completion(analysis_prompt)
+        print(f"🔍 Raw Analysis LLM Response (Full): {response}")  # Log full response
+        print(f"🔍 Analysis Response Length: {len(response)} characters")
+        
         # Try to parse JSON response
         try:
             analysis = json.loads(response)
@@ -316,6 +319,8 @@ For each bounty, provide:
 - target_audience: Who this bounty is for
 - success_metrics: How success will be measured
 
+IMPORTANT: Return ONLY valid JSON. Do not include any text before or after the JSON array. The response must be a valid JSON array that can be parsed directly.
+
 Return ONLY a JSON array with 6 bounty objects:
 [
     {{
@@ -333,18 +338,38 @@ Return ONLY a JSON array with 6 bounty objects:
     
     try:
         response = llm.create_completion(bounty_prompt)
-        # Try to parse JSON response
-        try:
-            bounties = json.loads(response)
-            # Ensure we have exactly 6 bounties
-            if len(bounties) < 6:
-                # Generate additional bounties if needed
-                additional_bounties = generate_additional_bounties(brand_name, analysis, llm, 6 - len(bounties))
-                bounties.extend(additional_bounties)
-            return bounties[:6]  # Return exactly 6 bounties
-        except json.JSONDecodeError:
-            print(f"❌ Failed to parse bounty JSON, generating fallback bounties")
+        print(f"🔍 Raw LLM Response (Full): {response}")  # Log full response
+        print(f"🔍 LLM Response Length: {len(response)} characters")
+        
+        # Clean the response - remove any text before/after JSON
+        response_clean = response.strip()
+        
+        # Try to find JSON array in the response
+        start_idx = response_clean.find('[')
+        end_idx = response_clean.rfind(']') + 1
+        
+        if start_idx != -1 and end_idx > start_idx:
+            json_str = response_clean[start_idx:end_idx]
+            print(f"🔍 Extracted JSON: {json_str[:200]}...")
+            
+            try:
+                bounties = json.loads(json_str)
+                print(f"✅ Successfully parsed {len(bounties)} bounties")
+                
+                # Ensure we have exactly 6 bounties
+                if len(bounties) < 6:
+                    print(f"⚠️ Only {len(bounties)} bounties generated, creating fallback bounties")
+                    return generate_fallback_bounties(brand_name, analysis)
+                
+                return bounties[:6]  # Return exactly 6 bounties
+            except json.JSONDecodeError as json_error:
+                print(f"❌ JSON parsing error: {json_error}")
+                print(f"❌ Raw response: {response}")
+                return generate_fallback_bounties(brand_name, analysis)
+        else:
+            print(f"❌ No JSON array found in response: {response}")
             return generate_fallback_bounties(brand_name, analysis)
+            
     except Exception as e:
         print(f"❌ Error generating bounties: {e}")
         return generate_fallback_bounties(brand_name, analysis)
@@ -360,8 +385,11 @@ Return ONLY a JSON array with {count} bounty objects in the same format as befor
     
     try:
         response = llm.create_completion(additional_prompt)
+        print(f"🔍 Raw Additional Bounties LLM Response (Full): {response}")  # Log full response
+        print(f"🔍 Additional Bounties Response Length: {len(response)} characters")
         return json.loads(response)
-    except:
+    except Exception as e:
+        print(f"❌ Error generating additional bounties: {e}")
         return []
 
 def generate_fallback_bounties(brand_name: str, analysis: Dict) -> List[Dict[str, Any]]:
@@ -471,9 +499,23 @@ async def handle_metrics_data(ctx: Context, sender: str, msg: MetricsData):
             ctx.logger.info(f"✅ Successfully auto-generated {len(bounty_result['bounties'])} bounties for {msg.brand_name}")
             
             # Store the generated bounties for later retrieval
-            if 'generated_bounties' not in ctx.storage:
-                ctx.storage['generated_bounties'] = {}
-            ctx.storage['generated_bounties'][msg.brand_name] = bounty_result
+            try:
+                # Get existing generated bounties or create new dict
+                existing_bounties = ctx.storage.get('generated_bounties')
+                if existing_bounties is None:
+                    generated_bounties = {}
+                else:
+                    generated_bounties = existing_bounties
+                
+                # Add new bounties for this brand
+                generated_bounties[msg.brand_name] = bounty_result
+                
+                # Store back to storage
+                ctx.storage.set('generated_bounties', generated_bounties)
+                ctx.logger.info(f"💾 Stored bounties for {msg.brand_name} in storage")
+            except Exception as storage_error:
+                ctx.logger.error(f"❌ Error storing bounties: {storage_error}")
+                # Continue without failing the whole process
             
             # Send acknowledgment with bounty generation status
             response = MetricsResponse(
@@ -713,7 +755,9 @@ async def handle_auto_generated_bounties(ctx: Context) -> AutoGeneratedBountiesR
     
     try:
         # Get auto-generated bounties from storage
-        generated_bounties = ctx.storage.get('generated_bounties', {})
+        generated_bounties = ctx.storage.get('generated_bounties')
+        if generated_bounties is None:
+            generated_bounties = {}
         
         return AutoGeneratedBountiesResponse(
             success=True,
@@ -743,7 +787,9 @@ async def handle_auto_generated_bounties_for_brand(ctx: Context, brand_name: str
     
     try:
         # Get auto-generated bounties for specific brand from storage
-        generated_bounties = ctx.storage.get('generated_bounties', {})
+        generated_bounties = ctx.storage.get('generated_bounties')
+        if generated_bounties is None:
+            generated_bounties = {}
         brand_bounties = generated_bounties.get(brand_name)
         
         if brand_bounties:
