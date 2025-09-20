@@ -9,7 +9,7 @@ class LLM:
             base_url="https://api.asi1.ai/v1"
         )
 
-    def create_completion(self, prompt, max_tokens=300):
+    def create_completion(self, prompt):
         completion = self.client.chat.completions.create(
             messages=[{"role": "user", "content": prompt}],
             model="asi1-mini",  # ASI:One model name
