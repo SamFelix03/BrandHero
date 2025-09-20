@@ -1,0 +1,770 @@
+from datetime import datetime, timezone
+import mailbox
+from uuid import uuid4
+from typing import Any, Dict, List, Optional
+import json
+import os
+import requests
+from dotenv import load_dotenv
+from uagents import Context, Model, Protocol, Agent
+from hyperon import MeTTa
+
+from uagents_core.contrib.protocols.chat import (
+    ChatAcknowledgement,
+    ChatMessage,
+    EndSessionContent,
+    StartSessionContent,
+    TextContent,
+    chat_protocol_spec,
+)
+
+# Load environment variables
+load_dotenv()
+
+# Set your API keys
+ASI_ONE_API_KEY = os.environ.get("ASI_ONE_API_KEY")
+AGENTVERSE_API_KEY = os.environ.get("AGENTVERSE_API_KEY")
+
+if not ASI_ONE_API_KEY:
+    raise ValueError("Please set ASI_ONE_API_KEY environment variable")
+if not AGENTVERSE_API_KEY:
+    raise ValueError("Please set AGENTVERSE_API_KEY environment variable")
+
+# Initialize agent
+agent = Agent(
+    name="bounty_suggestion_agent",
+    port=8007,
+    seed="bounty suggestion agent seed",
+    mailbox=True,
+    endpoint=["http://localhost:8007/submit"]
+)
+
+# REST API Models
+class BountyRequest(Model):
+    brand_name: str
+
+class BountyResponse(Model):
+    success: bool
+    brand_name: str
+    bounties: List[Dict[str, Any]]
+    analysis_summary: str
+    timestamp: str
+    agent_address: str
+
+class BountyItem(Model):
+    title: str
+    description: str
+    category: str
+    difficulty: str
+    estimated_reward: str
+    target_audience: str
+    success_metrics: List[str]
+
+# A2A Communication Models for receiving metrics from brand-metrics-agent
+class MetricsData(Model):
+    brand_name: str
+    web_results: List[str]
+    positive_reviews: List[str]
+    negative_reviews: List[str]
+    positive_reddit: List[str]
+    negative_reddit: List[str]
+    positive_social: List[str]
+    negative_social: List[str]
+    timestamp: str
+    source_agent: str
+
+class MetricsResponse(Model):
+    success: bool
+    message: str
+    timestamp: str
+    agent_address: str
+
+# Initialize global components
+metta = MeTTa()
+llm_client = None
+
+# Storage for received metrics data from brand-metrics-agent
+received_metrics = {}
+
+class LLM:
+    def __init__(self, api_key):
+        from openai import OpenAI
+        self.client = OpenAI(
+            api_key=api_key,
+            base_url="https://api.asi1.ai/v1"
+        )
+
+    def create_completion(self, prompt):
+        completion = self.client.chat.completions.create(
+            messages=[{"role": "user", "content": prompt}],
+            model="asi1-mini"
+        )
+        return completion.choices[0].message.content
+
+def combine_brand_data(metrics_data: Dict, kg_data: Dict, brand_name: str) -> Dict:
+    """Combine brand data from A2A metrics and knowledge graph."""
+    combined = {}
+    
+    # Start with knowledge graph data if available
+    if kg_data:
+        combined.update(kg_data)
+    
+    # Overlay with metrics data if available (metrics take precedence)
+    if metrics_data:
+        # Convert metrics data to the same format as knowledge graph data
+        combined.update({
+            'web_results': metrics_data.get('web_results', []),
+            'positive_reviews': metrics_data.get('positive_reviews', []),
+            'negative_reviews': metrics_data.get('negative_reviews', []),
+            'positive_reddit': metrics_data.get('positive_reddit', []),
+            'negative_reddit': metrics_data.get('negative_reddit', []),
+            'positive_social': metrics_data.get('positive_social', []),
+            'negative_social': metrics_data.get('negative_social', [])
+        })
+    
+    # If we have any data, return it
+    if combined:
+        return combined
+    
+    return None
+
+def get_brand_data_from_research_agent(brand_name: str) -> Dict:
+    """Fetch brand data from the brand-research-agent."""
+    try:
+        # Call the brand research agent's summary endpoint
+        url = "http://localhost:8006/brand/summary"
+        payload = {"brand_name": brand_name}
+        
+        print(f"🌐 Fetching brand data from research agent: {url}")
+        response = requests.post(url, json=payload, timeout=30)
+        
+        if response.status_code == 200:
+            data = response.json()
+            if data.get("success"):
+                return data.get("summary", {})
+            else:
+                print(f"❌ Brand research agent returned error: {data}")
+                return {}
+        else:
+            print(f"❌ HTTP error from brand research agent: {response.status_code}")
+            return {}
+            
+    except Exception as e:
+        print(f"❌ Error fetching brand data: {e}")
+        return {}
+
+def analyze_brand_weaknesses(brand_data: Dict, brand_name: str, llm: LLM) -> Dict:
+    """Analyze brand data to identify weaknesses and areas for improvement."""
+    
+    # Extract data from brand summary
+    web_results = brand_data.get('web_results', [])
+    positive_reviews = brand_data.get('positive_reviews', [])
+    negative_reviews = brand_data.get('negative_reviews', [])
+    positive_reddit = brand_data.get('positive_reddit', [])
+    negative_reddit = brand_data.get('negative_reddit', [])
+    positive_social = brand_data.get('positive_social', [])
+    negative_social = brand_data.get('negative_social', [])
+    
+    # Count sentiment data
+    positive_count = len(positive_reviews) + len(positive_reddit) + len(positive_social)
+    negative_count = len(negative_reviews) + len(negative_reddit) + len(negative_social)
+    
+    # Create analysis prompt
+    analysis_prompt = f"""
+Brand Analysis for: {brand_name}
+
+BRAND DATA SUMMARY:
+- Web Results: {len(web_results)} items
+- Positive Reviews: {len(positive_reviews)} items
+- Negative Reviews: {len(negative_reviews)} items
+- Positive Reddit Discussions: {len(positive_reddit)} items
+- Negative Reddit Discussions: {len(negative_reddit)} items
+- Positive Social Media: {len(positive_social)} items
+- Negative Social Media: {len(negative_social)} items
+
+NEGATIVE REVIEWS SAMPLE:
+{chr(10).join(negative_reviews[:3]) if negative_reviews else "No negative reviews found"}
+
+NEGATIVE REDDIT DISCUSSIONS SAMPLE:
+{chr(10).join(negative_reddit[:3]) if negative_reddit else "No negative Reddit discussions found"}
+
+NEGATIVE SOCIAL MEDIA SAMPLE:
+{chr(10).join(negative_social[:3]) if negative_social else "No negative social media found"}
+
+WEB RESULTS SAMPLE:
+{chr(10).join(web_results[:3]) if web_results else "No web results found"}
+
+TASK: Analyze this brand data and identify:
+1. Main weaknesses and pain points
+2. Areas where the brand is underperforming
+3. Customer complaints and concerns
+4. Market positioning issues
+5. Social media sentiment problems
+6. Competitive disadvantages
+
+Return your analysis in JSON format:
+{{
+    "weaknesses": ["weakness1", "weakness2", "weakness3"],
+    "pain_points": ["pain1", "pain2", "pain3"],
+    "underperforming_areas": ["area1", "area2", "area3"],
+    "customer_concerns": ["concern1", "concern2", "concern3"],
+    "market_issues": ["issue1", "issue2"],
+    "social_sentiment_issues": ["issue1", "issue2"],
+    "competitive_disadvantages": ["disadvantage1", "disadvantage2"]
+}}
+"""
+    
+    try:
+        response = llm.create_completion(analysis_prompt)
+        # Try to parse JSON response
+        try:
+            analysis = json.loads(response)
+            return analysis
+        except json.JSONDecodeError:
+            # If JSON parsing fails, create a basic analysis
+            return {
+                "weaknesses": ["Customer satisfaction", "Brand awareness", "Market positioning"],
+                "pain_points": ["Product quality concerns", "Customer service issues", "Pricing competitiveness"],
+                "underperforming_areas": ["Social media engagement", "Online reviews", "Customer retention"],
+                "customer_concerns": ["Product reliability", "Customer support", "Value for money"],
+                "market_issues": ["Brand recognition", "Market share"],
+                "social_sentiment_issues": ["Negative social media mentions", "Poor online reputation"],
+                "competitive_disadvantages": ["Brand awareness", "Customer loyalty"]
+            }
+    except Exception as e:
+        print(f"❌ Error in brand analysis: {e}")
+        return {
+            "weaknesses": ["Customer satisfaction", "Brand awareness", "Market positioning"],
+            "pain_points": ["Product quality concerns", "Customer service issues", "Pricing competitiveness"],
+            "underperforming_areas": ["Social media engagement", "Online reviews", "Customer retention"],
+            "customer_concerns": ["Product reliability", "Customer support", "Value for money"],
+            "market_issues": ["Brand recognition", "Market share"],
+            "social_sentiment_issues": ["Negative social media mentions", "Poor online reputation"],
+            "competitive_disadvantages": ["Brand awareness", "Customer loyalty"]
+        }
+
+def generate_bounty_suggestions(brand_name: str, analysis: Dict, llm: LLM) -> List[Dict[str, Any]]:
+    """Generate bounty suggestions based on brand analysis."""
+    
+    bounty_prompt = f"""
+Brand: {brand_name}
+
+BRAND ANALYSIS:
+Weaknesses: {', '.join(analysis.get('weaknesses', []))}
+Pain Points: {', '.join(analysis.get('pain_points', []))}
+Underperforming Areas: {', '.join(analysis.get('underperforming_areas', []))}
+Customer Concerns: {', '.join(analysis.get('customer_concerns', []))}
+Market Issues: {', '.join(analysis.get('market_issues', []))}
+Social Sentiment Issues: {', '.join(analysis.get('social_sentiment_issues', []))}
+Competitive Disadvantages: {', '.join(analysis.get('competitive_disadvantages', []))}
+
+TASK: Generate 6 creative and actionable bounty suggestions that address the brand's weaknesses and help improve its performance. Each bounty should be:
+
+1. SPECIFIC and actionable
+2. TARGETED at addressing specific weaknesses
+3. ENGAGING for loyalty program members
+4. MEASURABLE in terms of success
+5. REALISTIC and achievable
+
+For each bounty, provide:
+- title: Catchy, engaging title
+- description: Detailed description of what the user needs to do
+- category: Type of bounty (e.g., "Social Media", "Review", "Content Creation", "Community Building", "Product Testing", "Brand Advocacy")
+- difficulty: Easy, Medium, or Hard
+- estimated_reward: Suggested reward amount/points
+- target_audience: Who this bounty is for
+- success_metrics: How success will be measured
+
+Return ONLY a JSON array with 6 bounty objects:
+[
+    {{
+        "title": "Bounty Title",
+        "description": "Detailed description of the bounty task",
+        "category": "Category Name",
+        "difficulty": "Easy/Medium/Hard",
+        "estimated_reward": "Reward amount/points",
+        "target_audience": "Target audience description",
+        "success_metrics": ["metric1", "metric2", "metric3"]
+    }},
+    ...
+]
+"""
+    
+    try:
+        response = llm.create_completion(bounty_prompt)
+        # Try to parse JSON response
+        try:
+            bounties = json.loads(response)
+            # Ensure we have exactly 6 bounties
+            if len(bounties) < 6:
+                # Generate additional bounties if needed
+                additional_bounties = generate_additional_bounties(brand_name, analysis, llm, 6 - len(bounties))
+                bounties.extend(additional_bounties)
+            return bounties[:6]  # Return exactly 6 bounties
+        except json.JSONDecodeError:
+            print(f"❌ Failed to parse bounty JSON, generating fallback bounties")
+            return generate_fallback_bounties(brand_name, analysis)
+    except Exception as e:
+        print(f"❌ Error generating bounties: {e}")
+        return generate_fallback_bounties(brand_name, analysis)
+
+def generate_additional_bounties(brand_name: str, analysis: Dict, llm: LLM, count: int) -> List[Dict[str, Any]]:
+    """Generate additional bounties if the initial generation didn't produce enough."""
+    additional_prompt = f"""
+Generate {count} additional bounty suggestions for {brand_name} based on these weaknesses:
+{', '.join(analysis.get('weaknesses', []))}
+
+Return ONLY a JSON array with {count} bounty objects in the same format as before.
+"""
+    
+    try:
+        response = llm.create_completion(additional_prompt)
+        return json.loads(response)
+    except:
+        return []
+
+def generate_fallback_bounties(brand_name: str, analysis: Dict) -> List[Dict[str, Any]]:
+    """Generate fallback bounties if LLM fails."""
+    weaknesses = analysis.get('weaknesses', ['Customer satisfaction', 'Brand awareness'])
+    
+    fallback_bounties = [
+        {
+            "title": f"Share Your {brand_name} Experience",
+            "description": f"Post about your positive experience with {brand_name} on social media with our hashtag",
+            "category": "Social Media",
+            "difficulty": "Easy",
+            "estimated_reward": "50 points",
+            "target_audience": "All customers",
+            "success_metrics": ["Social media post created", "Hashtag used", "Positive sentiment"]
+        },
+        {
+            "title": f"Write a {brand_name} Review",
+            "description": f"Write a detailed review of {brand_name} on Google Reviews or Trustpilot",
+            "category": "Review",
+            "difficulty": "Medium",
+            "estimated_reward": "100 points",
+            "target_audience": "Recent customers",
+            "success_metrics": ["Review posted", "Minimum word count", "Star rating"]
+        },
+        {
+            "title": f"Create {brand_name} Content",
+            "description": f"Create original content showcasing {brand_name} products or services",
+            "category": "Content Creation",
+            "difficulty": "Medium",
+            "estimated_reward": "150 points",
+            "target_audience": "Creative customers",
+            "success_metrics": ["Original content created", "Brand mentioned", "Engagement received"]
+        },
+        {
+            "title": f"Refer a Friend to {brand_name}",
+            "description": f"Refer a friend to try {brand_name} and both get rewards",
+            "category": "Referral",
+            "difficulty": "Easy",
+            "estimated_reward": "75 points",
+            "target_audience": "Satisfied customers",
+            "success_metrics": ["Referral made", "Friend signs up", "Both parties active"]
+        },
+        {
+            "title": f"Join {brand_name} Community",
+            "description": f"Join our online community and participate in discussions",
+            "category": "Community Building",
+            "difficulty": "Easy",
+            "estimated_reward": "25 points",
+            "target_audience": "All customers",
+            "success_metrics": ["Community joined", "Posts made", "Engagement shown"]
+        },
+        {
+            "title": f"Test New {brand_name} Features",
+            "description": f"Beta test new features and provide feedback",
+            "category": "Product Testing",
+            "difficulty": "Hard",
+            "estimated_reward": "200 points",
+            "target_audience": "Tech-savvy customers",
+            "success_metrics": ["Feature tested", "Feedback provided", "Bug reports submitted"]
+        }
+    ]
+    
+    return fallback_bounties
+
+# Protocol setup
+chat_proto = Protocol(spec=chat_protocol_spec)
+
+def create_text_chat(text: str, end_session: bool = False) -> ChatMessage:
+    """Create a text chat message."""
+    content = [TextContent(type="text", text=text)]
+    if end_session:
+        content.append(EndSessionContent(type="end-session"))
+    return ChatMessage(
+        timestamp=datetime.now(timezone.utc),
+        msg_id=uuid4(),
+        content=content,
+    )
+
+# Message Handler for receiving metrics from brand-metrics-agent
+@agent.on_message(MetricsData)
+async def handle_metrics_data(ctx: Context, sender: str, msg: MetricsData):
+    """Handle incoming metrics data from brand-metrics-agent and auto-generate bounties."""
+    ctx.logger.info(f"📊 Received metrics data for brand: {msg.brand_name} from {sender}")
+    
+    # Store the metrics data
+    received_metrics[msg.brand_name] = {
+        "web_results": msg.web_results,
+        "positive_reviews": msg.positive_reviews,
+        "negative_reviews": msg.negative_reviews,
+        "positive_reddit": msg.positive_reddit,
+        "negative_reddit": msg.negative_reddit,
+        "positive_social": msg.positive_social,
+        "negative_social": msg.negative_social,
+        "timestamp": msg.timestamp,
+        "source_agent": msg.source_agent
+    }
+    
+    ctx.logger.info(f"💾 Stored metrics for {msg.brand_name}: {len(msg.web_results)} web results, {len(msg.positive_reviews)} positive reviews, {len(msg.negative_reviews)} negative reviews")
+    
+    # 🎯 AUTO-GENERATE BOUNTIES IMMEDIATELY
+    ctx.logger.info(f"🚀 Auto-generating bounties for {msg.brand_name}...")
+    try:
+        bounty_result = await generate_bounties_for_brand(msg.brand_name, ctx)
+        
+        if bounty_result["success"]:
+            ctx.logger.info(f"✅ Successfully auto-generated {len(bounty_result['bounties'])} bounties for {msg.brand_name}")
+            
+            # Store the generated bounties for later retrieval
+            if 'generated_bounties' not in ctx.storage:
+                ctx.storage['generated_bounties'] = {}
+            ctx.storage['generated_bounties'][msg.brand_name] = bounty_result
+            
+            # Send acknowledgment with bounty generation status
+            response = MetricsResponse(
+                success=True,
+                message=f"Successfully received metrics data for {msg.brand_name} and auto-generated {len(bounty_result['bounties'])} bounties",
+                timestamp=datetime.now(timezone.utc).isoformat(),
+                agent_address=ctx.agent.address
+            )
+        else:
+            ctx.logger.error(f"❌ Failed to auto-generate bounties for {msg.brand_name}: {bounty_result.get('analysis_summary', 'Unknown error')}")
+            
+            # Send acknowledgment with error status
+            response = MetricsResponse(
+                success=False,
+                message=f"Received metrics data for {msg.brand_name} but failed to auto-generate bounties: {bounty_result.get('analysis_summary', 'Unknown error')}",
+                timestamp=datetime.now(timezone.utc).isoformat(),
+                agent_address=ctx.agent.address
+            )
+            
+    except Exception as e:
+        ctx.logger.error(f"❌ Error during auto-bounty generation for {msg.brand_name}: {e}")
+        
+        # Send acknowledgment with error status
+        response = MetricsResponse(
+            success=False,
+            message=f"Received metrics data for {msg.brand_name} but encountered error during auto-bounty generation: {str(e)}",
+            timestamp=datetime.now(timezone.utc).isoformat(),
+            agent_address=ctx.agent.address
+        )
+    
+    await ctx.send(sender, response)
+
+# Startup Handler
+@agent.on_event("startup")
+async def startup_handler(ctx: Context):
+    global llm_client
+    llm_client = LLM(ASI_ONE_API_KEY)
+    ctx.logger.info(f"Bounty Suggestion Agent started with address: {ctx.agent.address}")
+    ctx.logger.info("Agent is ready to generate bounty suggestions based on brand analysis!")
+    ctx.logger.info("🤖 Direct agent communication enabled - will receive metrics from brand-metrics-agent")
+    ctx.logger.info("🚀 AUTO-GENERATION ENABLED - bounties will be generated immediately upon receiving metrics!")
+    ctx.logger.info("REST API endpoints available:")
+    ctx.logger.info("- POST http://localhost:8007/bounty/generate")
+    ctx.logger.info("- GET  http://localhost:8007/metrics/received")
+    ctx.logger.info("- GET  http://localhost:8007/bounties/auto-generated")
+    ctx.logger.info("- GET  http://localhost:8007/bounties/auto-generated/{brand_name}")
+    ctx.logger.info("Message handlers available:")
+    ctx.logger.info("- MetricsData: Receives brand metrics from brand-metrics-agent and auto-generates bounties")
+
+# Chat Protocol Handlers
+@chat_proto.on_message(ChatMessage)
+async def handle_message(ctx: Context, sender: str, msg: ChatMessage):
+    """Handle incoming chat messages and process bounty generation requests."""
+    ctx.storage.set(str(ctx.session), sender)
+    await ctx.send(
+        sender,
+        ChatAcknowledgement(timestamp=datetime.now(timezone.utc), acknowledged_msg_id=msg.msg_id),
+    )
+
+    for item in msg.content:
+        if isinstance(item, StartSessionContent):
+            ctx.logger.info(f"Got a start session message from {sender}")
+            continue
+        elif isinstance(item, TextContent):
+            user_query = item.text.strip()
+            ctx.logger.info(f"Got a bounty generation request from {sender}: {user_query}")
+            
+            try:
+                # Extract brand name from query
+                brand_name = user_query.replace("generate bounties for", "").replace("bounties for", "").strip()
+                if not brand_name:
+                    brand_name = "Unknown Brand"
+                
+                # Generate bounties
+                bounty_result = await generate_bounties_for_brand(brand_name, ctx)
+                
+                if bounty_result["success"]:
+                    response_text = f"**Bounty Suggestions for {brand_name}**\n\n"
+                    response_text += f"**Analysis Summary:**\n{bounty_result['analysis_summary']}\n\n"
+                    response_text += "**Generated Bounties:**\n\n"
+                    
+                    for i, bounty in enumerate(bounty_result["bounties"], 1):
+                        response_text += f"**{i}. {bounty['title']}**\n"
+                        response_text += f"   Category: {bounty['category']}\n"
+                        response_text += f"   Difficulty: {bounty['difficulty']}\n"
+                        response_text += f"   Reward: {bounty['estimated_reward']}\n"
+                        response_text += f"   Description: {bounty['description']}\n\n"
+                else:
+                    response_text = f"I apologize, but I couldn't generate bounties for {brand_name}. Please try again."
+                
+                # Send the response back
+                await ctx.send(sender, create_text_chat(response_text))
+                
+            except Exception as e:
+                ctx.logger.error(f"Error processing bounty generation request: {e}")
+                await ctx.send(
+                    sender, 
+                    create_text_chat("I apologize, but I encountered an error processing your bounty generation request. Please try again.")
+                )
+        else:
+            ctx.logger.info(f"Got unexpected content from {sender}")
+
+@chat_proto.on_message(ChatAcknowledgement)
+async def handle_ack(ctx: Context, sender: str, msg: ChatAcknowledgement):
+    """Handle chat acknowledgements."""
+    ctx.logger.info(f"Got an acknowledgement from {sender} for {msg.acknowledged_msg_id}")
+
+async def generate_bounties_for_brand(brand_name: str, ctx: Context) -> Dict:
+    """Generate bounties for a specific brand using both A2A metrics and knowledge graph."""
+    try:
+        ctx.logger.info(f"🎯 Generating bounties for brand: {brand_name}")
+        
+        # Step 1: Check for received metrics from brand-metrics-agent
+        ctx.logger.info("Step 1: Checking for received metrics from brand-metrics-agent...")
+        metrics_data = received_metrics.get(brand_name)
+        
+        # Step 2: Get additional data from knowledge graph via brand-research-agent
+        ctx.logger.info("Step 2: Fetching additional data from knowledge graph...")
+        kg_data = get_brand_data_from_research_agent(brand_name)
+        
+        # Step 3: Combine metrics and knowledge graph data
+        ctx.logger.info("Step 3: Combining metrics and knowledge graph data...")
+        combined_data = combine_brand_data(metrics_data, kg_data, brand_name)
+        
+        if not combined_data:
+            return {
+                "success": False,
+                "brand_name": brand_name,
+                "bounties": [],
+                "analysis_summary": f"No data found for brand: {brand_name}. Please ensure brand-metrics-agent has sent metrics or brand exists in knowledge graph.",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "agent_address": ctx.agent.address
+            }
+        
+        # Step 4: Analyze brand weaknesses using combined data
+        ctx.logger.info("Step 4: Analyzing brand weaknesses using combined data...")
+        analysis = analyze_brand_weaknesses(combined_data, brand_name, llm_client)
+        
+        # Step 5: Generate bounty suggestions
+        ctx.logger.info("Step 5: Generating bounty suggestions...")
+        bounties = generate_bounty_suggestions(brand_name, analysis, llm_client)
+        
+        # Create analysis summary
+        data_sources = []
+        if metrics_data:
+            data_sources.append("A2A metrics")
+        if kg_data:
+            data_sources.append("knowledge graph")
+        
+        analysis_summary = f"Analyzed brand using {', '.join(data_sources)}. Identified {len(analysis.get('weaknesses', []))} key weaknesses: {', '.join(analysis.get('weaknesses', [])[:3])}"
+        
+        return {
+            "success": True,
+            "brand_name": brand_name,
+            "bounties": bounties,
+            "analysis_summary": analysis_summary,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "agent_address": ctx.agent.address
+        }
+        
+    except Exception as e:
+        ctx.logger.error(f"Error generating bounties for {brand_name}: {e}")
+        return {
+            "success": False,
+            "brand_name": brand_name,
+            "bounties": [],
+            "analysis_summary": f"Error generating bounties: {str(e)}",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "agent_address": ctx.agent.address
+        }
+
+# REST API Handlers
+@agent.on_rest_post("/bounty/generate", BountyRequest, BountyResponse)
+async def handle_bounty_generation(ctx: Context, req: BountyRequest) -> BountyResponse:
+    """Handle bounty generation requests."""
+    ctx.logger.info(f"Received bounty generation request for: {req.brand_name}")
+    
+    try:
+        result = await generate_bounties_for_brand(req.brand_name, ctx)
+        
+        return BountyResponse(
+            success=result["success"],
+            brand_name=result["brand_name"],
+            bounties=result["bounties"],
+            analysis_summary=result["analysis_summary"],
+            timestamp=result["timestamp"],
+            agent_address=result["agent_address"]
+        )
+        
+    except Exception as e:
+        error_msg = f"Error processing bounty generation for {req.brand_name}: {str(e)}"
+        ctx.logger.error(error_msg)
+        
+        return BountyResponse(
+            success=False,
+            brand_name=req.brand_name,
+            bounties=[],
+            analysis_summary=error_msg,
+            timestamp=datetime.now(timezone.utc).isoformat(),
+            agent_address=ctx.agent.address
+        )
+
+@agent.on_rest_get("/metrics/received")
+async def handle_received_metrics(ctx: Context):
+    """Handle requests to view received metrics data."""
+    ctx.logger.info("Received request for stored metrics data")
+    
+    try:
+        # Return all received metrics
+        return {
+            "success": True,
+            "received_metrics": received_metrics,
+            "total_brands": len(received_metrics),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "agent_address": ctx.agent.address
+        }
+        
+    except Exception as e:
+        error_msg = f"Error retrieving received metrics: {str(e)}"
+        ctx.logger.error(error_msg)
+        
+        return {
+            "success": False,
+            "received_metrics": {},
+            "total_brands": 0,
+            "error": error_msg,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "agent_address": ctx.agent.address
+        }
+
+@agent.on_rest_get("/bounties/auto-generated")
+async def handle_auto_generated_bounties(ctx: Context):
+    """Handle requests to view auto-generated bounties."""
+    ctx.logger.info("Received request for auto-generated bounties")
+    
+    try:
+        # Get auto-generated bounties from storage
+        generated_bounties = ctx.storage.get('generated_bounties', {})
+        
+        return {
+            "success": True,
+            "auto_generated_bounties": generated_bounties,
+            "total_brands_with_bounties": len(generated_bounties),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "agent_address": ctx.agent.address
+        }
+        
+    except Exception as e:
+        error_msg = f"Error retrieving auto-generated bounties: {str(e)}"
+        ctx.logger.error(error_msg)
+        
+        return {
+            "success": False,
+            "auto_generated_bounties": {},
+            "total_brands_with_bounties": 0,
+            "error": error_msg,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "agent_address": ctx.agent.address
+        }
+
+@agent.on_rest_get("/bounties/auto-generated/{brand_name}")
+async def handle_auto_generated_bounties_for_brand(ctx: Context, brand_name: str):
+    """Handle requests to view auto-generated bounties for a specific brand."""
+    ctx.logger.info(f"Received request for auto-generated bounties for brand: {brand_name}")
+    
+    try:
+        # Get auto-generated bounties for specific brand from storage
+        generated_bounties = ctx.storage.get('generated_bounties', {})
+        brand_bounties = generated_bounties.get(brand_name)
+        
+        if brand_bounties:
+            return {
+                "success": True,
+                "brand_name": brand_name,
+                "bounties": brand_bounties.get("bounties", []),
+                "analysis_summary": brand_bounties.get("analysis_summary", ""),
+                "timestamp": brand_bounties.get("timestamp", ""),
+                "agent_address": ctx.agent.address
+            }
+        else:
+            return {
+                "success": False,
+                "brand_name": brand_name,
+                "bounties": [],
+                "analysis_summary": f"No auto-generated bounties found for {brand_name}",
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+                "agent_address": ctx.agent.address
+            }
+        
+    except Exception as e:
+        error_msg = f"Error retrieving auto-generated bounties for {brand_name}: {str(e)}"
+        ctx.logger.error(error_msg)
+        
+        return {
+            "success": False,
+            "brand_name": brand_name,
+            "bounties": [],
+            "analysis_summary": error_msg,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "agent_address": ctx.agent.address
+        }
+
+# Include the chat protocol
+agent.include(chat_proto, publish_manifest=True)
+
+if __name__ == '__main__':
+    print("🚀 Starting Bounty Suggestion Agent...")
+    print(f"✅ Agent address: {agent.address}")
+    print("📡 Ready to generate bounty suggestions based on brand analysis")
+    print("🧠 Powered by ASI:One AI reasoning and brand research data")
+    print("🤖 A2A Communication enabled - will receive metrics from brand-metrics-agent")
+    print("🚀 AUTO-GENERATION ENABLED - bounties generated immediately upon receiving metrics!")
+    print(f"🔗 Bounty Agent Address for A2A: {agent.address}")
+    print("\n🌐 REST API Endpoints:")
+    print("POST http://localhost:8007/bounty/generate")
+    print("Body: {\"brand_name\": \"Tesla\"}")
+    print("GET  http://localhost:8007/metrics/received")
+    print("GET  http://localhost:8007/bounties/auto-generated")
+    print("GET  http://localhost:8007/bounties/auto-generated/Tesla")
+    print("\n🧪 Test queries:")
+    print("- 'generate bounties for Tesla'")
+    print("- 'bounties for Apple'")
+    print("- 'create bounties for Nike'")
+    print("\n🎯 Auto-Generation Flow:")
+    print("1. brand-metrics-agent generates metrics for a brand")
+    print("2. Metrics sent via A2A to bounty-agent")
+    print("3. bounty-agent automatically generates bounties")
+    print("4. Bounties stored and available via REST API")
+    print("\nPress CTRL+C to stop the agent")
+    
+    try:
+        agent.run()
+    except KeyboardInterrupt:
+        print("\n🛑 Shutting down Bounty Suggestion Agent...")
+        print("✅ Agent stopped.")
