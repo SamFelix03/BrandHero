@@ -814,8 +814,8 @@ async def research_brand(request: BrandRequest):
             
             # === 9. BOUNTY AGENT (with 1 minute delay) ===
             print(f"\n🎯 Step 9: Waiting 1 minute before calling Bounty Agent for {brand_name}...")
-            print("⏰ Waiting 60 seconds...")
-            await asyncio.sleep(60)  # Wait for 1 minute
+            print("⏰ Waiting 2.5 minutes...")
+            await asyncio.sleep(150)  
             
             print(f"\n🎯 Calling Bounty Agent for {brand_name}...")
             
