@@ -157,7 +157,7 @@ TASK: Analyze the provided brand data and generate comprehensive metrics in the 
   "brand_analysis_metadata": {{
     "brand_name": "{brand_name}",
     "analysis_timestamp": "2024-01-01T00:00:00Z",
-    "analysis_model": "gpt-4.1"
+    "analysis_model": "asi1-mini"
   }},
   "sentiment_metrics": {{
     "overall_brand_sentiment_score": 0-100,
@@ -219,15 +219,42 @@ ANALYSIS REQUIREMENTS:
 6. Determine market position from overall sentiment
 7. Provide strategic insights based on data patterns
 
-Return ONLY the JSON object with no additional text or explanations.
+CRITICAL: Return ONLY valid JSON. No markdown formatting, no code blocks, no explanations, no additional text. Just the raw JSON object.
 """
     
     try:
         response = llm.create_completion(prompt)
+        print(f"Raw LLM response: {response[:200]}...")
+        
+        # Clean the response - remove any markdown formatting
+        cleaned_response = response.strip()
+        if cleaned_response.startswith("```json"):
+            cleaned_response = cleaned_response[7:]
+        if cleaned_response.startswith("```"):
+            cleaned_response = cleaned_response[3:]
+        if cleaned_response.endswith("```"):
+            cleaned_response = cleaned_response[:-3]
+        cleaned_response = cleaned_response.strip()
+        
+        print(f"Cleaned response: {cleaned_response[:200]}...")
+        
         # Parse the JSON response
         import json
-        metrics = json.loads(response)
+        metrics = json.loads(cleaned_response)
         return metrics
+    except json.JSONDecodeError as e:
+        print(f"JSON parsing error: {e}")
+        print(f"Raw response that failed to parse: {response}")
+        # Return default metrics structure if parsing fails
+        return {
+            "brand_analysis_metadata": {
+                "brand_name": brand_name,
+                "analysis_timestamp": datetime.now(timezone.utc).isoformat(),
+                "analysis_model": "asi1-mini"
+            },
+            "error": f"Failed to parse JSON response: {str(e)}",
+            "raw_response": response[:500]  # Include first 500 chars for debugging
+        }
     except Exception as e:
         print(f"Error generating metrics: {e}")
         # Return default metrics structure if parsing fails
@@ -235,7 +262,7 @@ Return ONLY the JSON object with no additional text or explanations.
             "brand_analysis_metadata": {
                 "brand_name": brand_name,
                 "analysis_timestamp": datetime.now(timezone.utc).isoformat(),
-                "analysis_model": "gpt-4.1"
+                "analysis_model": "asi1-mini"
             },
             "error": f"Failed to generate metrics: {str(e)}"
         }
