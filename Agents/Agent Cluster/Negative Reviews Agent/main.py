@@ -20,7 +20,7 @@ load_dotenv()
 # Set your API keys and endpoints
 ASI_ONE_API_KEY = os.environ.get("ASI_ONE_API_KEY")
 AGENTVERSE_API_KEY = os.environ.get("AGENTVERSE_API_KEY")
-REVIEWS_MCP_ENDPOINT = os.environ.get("REVIEWS_MCP", "http://0.0.0.0:8000/scrape-reviews")
+REVIEWS_MCP_ENDPOINT = os.environ.get("REVIEWS_MCP", "https://reviewsmcp-739298578243.us-central1.run.app/scrape-reviews")
 
 if not ASI_ONE_API_KEY:
     raise ValueError("Please set ASI_ONE_API_KEY environment variable")
