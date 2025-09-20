@@ -12,8 +12,7 @@ class LLM:
     def create_completion(self, prompt):
         completion = self.client.chat.completions.create(
             messages=[{"role": "user", "content": prompt}],
-            model="asi1-mini",  # ASI:One model name
-            max_tokens=max_tokens
+            model="asi1-mini"  # ASI:One model name
         )
         return completion.choices[0].message.content
 
