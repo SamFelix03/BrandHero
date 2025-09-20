@@ -37,10 +37,10 @@ if not AGENTVERSE_API_KEY:
 # Initialize agent
 agent = Agent(
     name="brand_research_metta_agent",
-    port=8006,
+    port=8080,
     seed="brand research metta agent seed",
     mailbox=True,
-    endpoint=["http://localhost:8006/submit"]
+    endpoint=["http://localhost:8080/submit"]
 )
 
 # REST API Models
@@ -120,11 +120,11 @@ async def startup_handler(ctx: Context):
     ctx.logger.info(f"Brand Research MeTTa Agent started with address: {ctx.agent.address}")
     ctx.logger.info("Agent is ready to process brand research queries using MeTTa Knowledge Graph!")
     ctx.logger.info("REST API endpoints available:")
-    ctx.logger.info("- POST http://localhost:8006/brand/research")
-    ctx.logger.info("- POST http://localhost:8006/brand/query")
-    ctx.logger.info("- POST http://localhost:8006/brand/data")
-    ctx.logger.info("- POST http://localhost:8006/brand/summary")
-    ctx.logger.info("- GET  http://localhost:8006/brands/all")
+    ctx.logger.info("- POST http://localhost:8080/brand/research")
+    ctx.logger.info("- POST http://localhost:8080/brand/query")
+    ctx.logger.info("- POST http://localhost:8080/brand/data")
+    ctx.logger.info("- POST http://localhost:8080/brand/summary")
+    ctx.logger.info("- GET  http://localhost:8080/brands/all")
 
 # Chat Protocol Handlers
 @chat_proto.on_message(ChatMessage)
@@ -367,15 +367,15 @@ if __name__ == '__main__':
     print("📡 Ready to process brand research queries using MeTTa Knowledge Graph")
     print("🧠 Powered by ASI:One AI reasoning and MeTTa Knowledge Graph")
     print("\n🌐 REST API Endpoints:")
-    print("POST http://localhost:8006/brand/research")
+    print("POST http://localhost:8080/brand/research")
     print("Body: {\"brand_name\": \"Tesla\"}")
-    print("\nPOST http://localhost:8006/brand/query")
+    print("\nPOST http://localhost:8080/brand/query")
     print("Body: {\"query\": \"Tell me about Apple's sentiment analysis\"}")
-    print("\nPOST http://localhost:8006/brand/data")
+    print("\nPOST http://localhost:8080/brand/data")
     print("Body: {\"brand_name\": \"Nike\", \"data_type\": \"reviews\", \"sentiment\": \"negative\"}")
-    print("\nPOST http://localhost:8006/brand/summary")
+    print("\nPOST http://localhost:8080/brand/summary")
     print("Body: {\"brand_name\": \"Samsung\"}")
-    print("\nGET http://localhost:8006/brands/all")
+    print("\nGET http://localhost:8080/brands/all")
     print("\n🧪 Test queries:")
     print("- 'What brands do you have data for?'")
     print("- 'Tell me about Tesla's sentiment analysis'")
