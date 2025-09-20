@@ -210,7 +210,7 @@ MOST IMPORTANT: Talk about all the positive content obtained from the reddit pos
 
             # Let ASI:One decide whether to use the tool based on reasoning
             payload = {
-                "model": "asi1-extended",
+                "model": "asi1-mini",
                 "messages": messages,
                 "tools": [reddit_tool],
                 "tool_choice": "auto",  # Let the model decide intelligently
