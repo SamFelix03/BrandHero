@@ -94,6 +94,25 @@ class AllBrandsResponse(Model):
     timestamp: str
     agent_address: str
 
+# A2A Communication Models for sending metrics to bounty-agent
+class MetricsData(Model):
+    brand_name: str
+    web_results: List[str]
+    positive_reviews: List[str]
+    negative_reviews: List[str]
+    positive_reddit: List[str]
+    negative_reddit: List[str]
+    positive_social: List[str]
+    negative_social: List[str]
+    timestamp: str
+    source_agent: str
+
+class MetricsResponse(Model):
+    success: bool
+    message: str
+    timestamp: str
+    agent_address: str
+
 class BrandMetricsRequest(Model):
     brand_name: str
 
@@ -103,6 +122,46 @@ class BrandMetricsResponse(Model):
     metrics: Dict
     timestamp: str
     agent_address: str
+
+async def send_metrics_to_bounty_agent(ctx: Context, brand_name: str, brand_summary: Dict):
+    """Send brand metrics data to the bounty agent via A2A communication."""
+    try:
+        # Extract data from brand summary
+        web_results = brand_summary.get('web_results', [])
+        positive_reviews = brand_summary.get('positive_reviews', [])
+        negative_reviews = brand_summary.get('negative_reviews', [])
+        positive_reddit = brand_summary.get('positive_reddit', [])
+        negative_reddit = brand_summary.get('negative_reddit', [])
+        positive_social = brand_summary.get('positive_social', [])
+        negative_social = brand_summary.get('negative_social', [])
+        
+        # Create metrics data message
+        metrics_data = MetricsData(
+            brand_name=brand_name,
+            web_results=web_results,
+            positive_reviews=positive_reviews,
+            negative_reviews=negative_reviews,
+            positive_reddit=positive_reddit,
+            negative_reddit=negative_reddit,
+            positive_social=positive_social,
+            negative_social=negative_social,
+            timestamp=datetime.now(timezone.utc).isoformat(),
+            source_agent=ctx.agent.address
+        )
+        
+        # Get bounty agent address from environment variable or use default
+        bounty_agent_address = os.environ.get("BOUNTY_AGENT_ADDRESS", "agent1qdapkeqxpq0snse0uvkfsz47zv98ewkzlv624mmmtdrudpnvjpngsjrl0rm")
+        
+        if bounty_agent_address == "agent1q...":
+            ctx.logger.warning("⚠️ Bounty agent address not configured. Set BOUNTY_AGENT_ADDRESS environment variable.")
+            return
+        
+        ctx.logger.info(f"📤 Sending metrics data for {brand_name} to bounty agent...")
+        await ctx.send(bounty_agent_address, metrics_data)
+        ctx.logger.info(f"✅ Metrics data sent successfully for {brand_name}")
+        
+    except Exception as e:
+        ctx.logger.error(f"❌ Error sending metrics to bounty agent: {e}")
 
 def generate_brand_metrics(brand_name: str, brand_summary: Dict, llm: LLM) -> Dict:
     """Generate comprehensive brand metrics using LLM analysis."""
@@ -345,6 +404,13 @@ async def handle_ack(ctx: Context, sender: str, msg: ChatAcknowledgement):
     """Handle chat acknowledgements."""
     ctx.logger.info(f"Got an acknowledgement from {sender} for {msg.acknowledged_msg_id}")
 
+# Message Handler for receiving acknowledgments from bounty-agent
+@agent.on_message(MetricsResponse)
+async def handle_metrics_response(ctx: Context, sender: str, msg: MetricsResponse):
+    """Handle acknowledgment from bounty agent after sending metrics."""
+    ctx.logger.info(f"📥 Received acknowledgment from bounty agent: {msg.message}")
+    ctx.logger.info(f"✅ Metrics data successfully received by bounty agent at {msg.timestamp}")
+
 # REST API Handlers
 @agent.on_rest_post("/brand/research", BrandResearchRequest, BrandResearchResponse)
 async def handle_brand_research(ctx: Context, req: BrandResearchRequest) -> BrandResearchResponse:
@@ -544,6 +610,9 @@ async def handle_brand_metrics(ctx: Context, req: BrandMetricsRequest) -> BrandM
         if brand_summary:
             # Generate comprehensive metrics using LLM
             metrics = generate_brand_metrics(req.brand_name, brand_summary, llm)
+            
+            # Send metrics data to bounty agent via A2A communication
+            await send_metrics_to_bounty_agent(ctx, req.brand_name, brand_summary)
             
             return BrandMetricsResponse(
                 success=True,
