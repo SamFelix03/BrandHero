@@ -36,9 +36,9 @@ if not AGENTVERSE_API_KEY:
 
 # Initialize agent
 agent = Agent(
-    name="brand_research_metta_agent",
+    name="brand_metrics_agent",
     port=8080,
-    seed="brand research metta agent seed",
+    seed="brand metrics agent seed",
     mailbox=True,
     endpoint=["http://localhost:8080/submit"]
 )
@@ -94,6 +94,152 @@ class AllBrandsResponse(Model):
     timestamp: str
     agent_address: str
 
+class BrandMetricsRequest(Model):
+    brand_name: str
+
+class BrandMetricsResponse(Model):
+    success: bool
+    brand_name: str
+    metrics: Dict
+    timestamp: str
+    agent_address: str
+
+def generate_brand_metrics(brand_name: str, brand_summary: Dict, llm: LLM) -> Dict:
+    """Generate comprehensive brand metrics using LLM analysis."""
+    
+    # Extract all data types
+    web_results = brand_summary.get('web_results', [])
+    positive_reviews = brand_summary.get('positive_reviews', [])
+    negative_reviews = brand_summary.get('negative_reviews', [])
+    positive_reddit = brand_summary.get('positive_reddit', [])
+    negative_reddit = brand_summary.get('negative_reddit', [])
+    positive_social = brand_summary.get('positive_social', [])
+    negative_social = brand_summary.get('negative_social', [])
+    
+    # Create comprehensive data summary for LLM
+    all_data = []
+    
+    if web_results:
+        all_data.append(f"WEB SEARCH RESULTS:\n{chr(10).join(web_results[:5])}")
+    
+    if positive_reviews:
+        all_data.append(f"POSITIVE REVIEWS:\n{chr(10).join(positive_reviews[:5])}")
+    
+    if negative_reviews:
+        all_data.append(f"NEGATIVE REVIEWS:\n{chr(10).join(negative_reviews[:5])}")
+    
+    if positive_reddit:
+        all_data.append(f"POSITIVE REDDIT DISCUSSIONS:\n{chr(10).join(positive_reddit[:5])}")
+    
+    if negative_reddit:
+        all_data.append(f"NEGATIVE REDDIT DISCUSSIONS:\n{chr(10).join(negative_reddit[:5])}")
+    
+    if positive_social:
+        all_data.append(f"POSITIVE SOCIAL MEDIA:\n{chr(10).join(positive_social[:5])}")
+    
+    if negative_social:
+        all_data.append(f"NEGATIVE SOCIAL MEDIA:\n{chr(10).join(negative_social[:5])}")
+    
+    comprehensive_data = "\n\n".join(all_data)
+    
+    # Create the comprehensive metrics generation prompt
+    prompt = f"""
+You are a Brand Metrics Analyst AI specializing in comprehensive brand health assessment. 
+
+BRAND: {brand_name}
+
+COMPREHENSIVE BRAND DATA:
+{comprehensive_data}
+
+TASK: Analyze the provided brand data and generate comprehensive metrics in the following EXACT JSON format:
+
+{{
+  "brand_analysis_metadata": {{
+    "brand_name": "{brand_name}",
+    "analysis_timestamp": "2024-01-01T00:00:00Z",
+    "analysis_model": "gpt-4.1"
+  }},
+  "sentiment_metrics": {{
+    "overall_brand_sentiment_score": 0-100,
+    "web_media_sentiment_score": 0-100,
+    "customer_review_sentiment_score": 0-100,
+    "social_media_sentiment_score": 0-100,
+    "sentiment_volatility_score": 0-100,
+    "positive_mention_ratio": 0-100
+  }},
+  "reputation_risk_metrics": {{
+    "crisis_severity_level": 0-100,
+    "active_safety_recalls_count": 0+,
+    "reputation_vulnerability_score": 0-100,
+    "regulatory_attention_score": 0-100,
+    "negative_media_coverage_intensity": 0-100
+  }},
+  "market_position_metrics": {{
+    "competitive_advantage_score": 0-100,
+    "competitive_pressure_intensity": 0-100,
+    "market_leadership_perception": 0-100,
+    "brand_differentiation_score": 0-100,
+    "industry_innovation_ranking": 0-100
+  }},
+  "customer_experience_metrics": {{
+    "customer_satisfaction_proxy": 0-100,
+    "review_volume_strength": 0-100,
+    "customer_advocacy_level": 0-100,
+    "complaint_resolution_effectiveness": 0-100,
+    "service_quality_perception": 0-100
+  }},
+  "performance_indicators": {{
+    "brand_health_index": 0-100,
+    "brand_resilience_score": 0-100,
+    "growth_potential_indicator": 0-100,
+    "stakeholder_confidence_level": 0-100,
+    "future_readiness_score": 0-100
+  }},
+  "strategic_insights": {{
+    "primary_improvement_area": "Crisis Management|Innovation|Customer Experience|Marketing",
+    "urgency_level": "LOW|MEDIUM|HIGH|CRITICAL",
+    "investment_priority_score": 0-100,
+    "competitive_threat_level": 0-100,
+    "brand_momentum_direction": "DECLINING|STABLE|GROWING|ACCELERATING"
+  }}
+}}
+
+SCORING GUIDELINES:
+- 0-25: Poor/Critical
+- 26-50: Below Average/Needs Improvement  
+- 51-75: Good/Acceptable
+- 76-100: Excellent/Outstanding
+
+ANALYSIS REQUIREMENTS:
+1. Base all scores on actual data provided
+2. Consider sentiment patterns across all platforms
+3. Assess competitive positioning from web results
+4. Evaluate customer experience from reviews
+5. Identify reputation risks from negative mentions
+6. Determine market position from overall sentiment
+7. Provide strategic insights based on data patterns
+
+Return ONLY the JSON object with no additional text or explanations.
+"""
+    
+    try:
+        response = llm.create_completion(prompt)
+        # Parse the JSON response
+        import json
+        metrics = json.loads(response)
+        return metrics
+    except Exception as e:
+        print(f"Error generating metrics: {e}")
+        # Return default metrics structure if parsing fails
+        return {
+            "brand_analysis_metadata": {
+                "brand_name": brand_name,
+                "analysis_timestamp": datetime.now(timezone.utc).isoformat(),
+                "analysis_model": "gpt-4.1"
+            },
+            "error": f"Failed to generate metrics: {str(e)}"
+        }
+
 # Initialize global components
 metta = MeTTa()
 initialize_knowledge_graph(metta)
@@ -117,13 +263,14 @@ def create_text_chat(text: str, end_session: bool = False) -> ChatMessage:
 # Startup Handler
 @agent.on_event("startup")
 async def startup_handler(ctx: Context):
-    ctx.logger.info(f"Brand Research MeTTa Agent started with address: {ctx.agent.address}")
-    ctx.logger.info("Agent is ready to process brand research queries using MeTTa Knowledge Graph!")
+    ctx.logger.info(f"Brand Metrics Agent started with address: {ctx.agent.address}")
+    ctx.logger.info("Agent is ready to process brand metrics analysis using MeTTa Knowledge Graph!")
     ctx.logger.info("REST API endpoints available:")
     ctx.logger.info("- POST http://localhost:8080/brand/research")
     ctx.logger.info("- POST http://localhost:8080/brand/query")
     ctx.logger.info("- POST http://localhost:8080/brand/data")
     ctx.logger.info("- POST http://localhost:8080/brand/summary")
+    ctx.logger.info("- POST http://localhost:8080/brand/metrics")
     ctx.logger.info("- GET  http://localhost:8080/brands/all")
 
 # Chat Protocol Handlers
@@ -358,13 +505,54 @@ async def handle_all_brands(ctx: Context) -> AllBrandsResponse:
             agent_address=ctx.agent.address
         )
 
+@agent.on_rest_post("/brand/metrics", BrandMetricsRequest, BrandMetricsResponse)
+async def handle_brand_metrics(ctx: Context, req: BrandMetricsRequest) -> BrandMetricsResponse:
+    """Handle comprehensive brand metrics analysis requests."""
+    ctx.logger.info(f"Received brand metrics request for: {req.brand_name}")
+    
+    try:
+        # Get comprehensive brand data from knowledge graph
+        brand_summary = rag.get_brand_summary(req.brand_name)
+        
+        if brand_summary:
+            # Generate comprehensive metrics using LLM
+            metrics = generate_brand_metrics(req.brand_name, brand_summary, llm)
+            
+            return BrandMetricsResponse(
+                success=True,
+                brand_name=req.brand_name,
+                metrics=metrics,
+                timestamp=datetime.now(timezone.utc).isoformat(),
+                agent_address=ctx.agent.address
+            )
+        else:
+            return BrandMetricsResponse(
+                success=False,
+                brand_name=req.brand_name,
+                metrics={},
+                timestamp=datetime.now(timezone.utc).isoformat(),
+                agent_address=ctx.agent.address
+            )
+        
+    except Exception as e:
+        error_msg = f"Error processing brand metrics for {req.brand_name}: {str(e)}"
+        ctx.logger.error(error_msg)
+        
+        return BrandMetricsResponse(
+            success=False,
+            brand_name=req.brand_name,
+            metrics={},
+            timestamp=datetime.now(timezone.utc).isoformat(),
+            agent_address=ctx.agent.address
+        )
+
 # Include the chat protocol
 agent.include(chat_proto, publish_manifest=True)
 
 if __name__ == '__main__':
-    print("🚀 Starting Brand Research MeTTa Agent...")
+    print("🚀 Starting Brand Metrics Agent...")
     print(f"✅ Agent address: {agent.address}")
-    print("📡 Ready to process brand research queries using MeTTa Knowledge Graph")
+    print("📡 Ready to process brand metrics analysis using MeTTa Knowledge Graph")
     print("🧠 Powered by ASI:One AI reasoning and MeTTa Knowledge Graph")
     print("\n🌐 REST API Endpoints:")
     print("POST http://localhost:8080/brand/research")
@@ -375,16 +563,27 @@ if __name__ == '__main__':
     print("Body: {\"brand_name\": \"Nike\", \"data_type\": \"reviews\", \"sentiment\": \"negative\"}")
     print("\nPOST http://localhost:8080/brand/summary")
     print("Body: {\"brand_name\": \"Samsung\"}")
+    print("\nPOST http://localhost:8080/brand/metrics")
+    print("Body: {\"brand_name\": \"Tesla\"}")
+    print("Returns: Comprehensive brand metrics including sentiment, reputation risk, market position, customer experience, performance indicators, and strategic insights")
     print("\nGET http://localhost:8080/brands/all")
     print("\n🧪 Test queries:")
     print("- 'What brands do you have data for?'")
     print("- 'Tell me about Tesla's sentiment analysis'")
     print("- 'How do Apple's reviews compare to Samsung?'")
     print("- 'What are the negative reviews for Nike?'")
+    print("- 'Generate comprehensive metrics for Tesla'")
+    print("\n📊 Brand Metrics Analysis includes:")
+    print("- Sentiment Metrics (overall, web, reviews, social)")
+    print("- Reputation Risk Metrics (crisis severity, vulnerability)")
+    print("- Market Position Metrics (competitive advantage, leadership)")
+    print("- Customer Experience Metrics (satisfaction, advocacy)")
+    print("- Performance Indicators (health index, resilience)")
+    print("- Strategic Insights (improvement areas, urgency levels)")
     print("\nPress CTRL+C to stop the agent")
     
     try:
         agent.run()
     except KeyboardInterrupt:
-        print("\n🛑 Shutting down Brand Research MeTTa Agent...")
+        print("\n🛑 Shutting down Brand Metrics Agent...")
         print("✅ Agent stopped.")
