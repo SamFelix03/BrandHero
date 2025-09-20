@@ -819,10 +819,12 @@ async def research_brand(request: BrandRequest):
             
             print(f"\n🎯 Calling Bounty Agent for {brand_name}...")
             
-            # Keep retrying until we get a successful response (max 50 attempts)
+            # Simple retry logic: get bounty data or retry (max 50 attempts)
             attempt = 0
             max_attempts = 50
-            while attempt < max_attempts:
+            bounty_result = None
+            
+            while attempt < max_attempts and bounty_result is None:
                 attempt += 1
                 try:
                     print(f"Bounty agent attempt {attempt}/{max_attempts}")
@@ -832,112 +834,22 @@ async def research_brand(request: BrandRequest):
                     bounty_response.raise_for_status()
                     bounty_data = bounty_response.json()
                     
-                    # Debug logging
-                    print(f"🔍 Bounty agent response: success={bounty_data.get('success')}, has_auto_generated_bounties={'auto_generated_bounties' in bounty_data}")
-                    if 'auto_generated_bounties' in bounty_data:
-                        auto_bounties = bounty_data.get('auto_generated_bounties', {})
-                        print(f"🔍 Auto generated bounties keys: {list(auto_bounties.keys())}")
-                        for brand, data in auto_bounties.items():
-                            if isinstance(data, dict):
-                                print(f"🔍 Brand '{brand}': success={data.get('success')}, has_bounties={'bounties' in data}, bounty_count={len(data.get('bounties', []))}")
-                    
-                    # Check if we got the final result immediately
-                    if bounty_data.get("success") and "auto_generated_bounties" in bounty_data:
-                        # Check if the response has an actual error field (not just the word "error" in content)
-                        if bounty_data.get("error") is not None:
-                            print(f"❌ Bounty agent returned error: {bounty_data.get('error')}, retrying in 4 seconds...")
-                            await asyncio.sleep(4)
-                            continue
-                        
-                        # Check if we have actual bounty data
-                        auto_generated_bounties = bounty_data.get("auto_generated_bounties", {})
-                        if not auto_generated_bounties:
-                            print(f"❌ Bounty agent returned empty bounties, retrying in 4 seconds...")
-                            await asyncio.sleep(4)
-                            continue
-                        
-                        # Additional check: ensure we have bounties for at least one brand
-                        has_valid_bounties = False
-                        for brand_name, brand_data in auto_generated_bounties.items():
-                            if isinstance(brand_data, dict) and brand_data.get("success") and brand_data.get("bounties"):
-                                has_valid_bounties = True
-                                break
-                        
-                        if not has_valid_bounties:
-                            print(f"❌ Bounty agent returned no valid bounties, retrying in 4 seconds...")
-                            await asyncio.sleep(4)
-                            continue
-                        
+                    # Simple check: if we have success and auto_generated_bounties, use it
+                    if bounty_data.get("success") and bounty_data.get("auto_generated_bounties"):
                         bounty_result = str(bounty_data)
                         print(f"✅ Bounty agent completed successfully after {attempt} attempts!")
-                        print(f"📊 Found bounties for brands: {list(auto_generated_bounties.keys())}")
+                        print(f"📊 Bounty data received: {len(bounty_result)} characters")
                         break
                     else:
-                        # The agent is still processing, we need to poll for results
-                        print(f"Bounty agent is processing... Status: {bounty_data.get('status', 'unknown')}")
-                        
-                        # Poll for results with limited attempts
-                        poll_interval = 4
-                        poll_attempt = 0
-                        max_poll_attempts = 10  # Limit polling attempts
-                        
-                        while poll_attempt < max_poll_attempts:
-                            poll_attempt += 1
-                            print(f"Bounty agent polling attempt {poll_attempt}/{max_poll_attempts}")
-                            await asyncio.sleep(poll_interval)
-                            
-                            # Make another request to check status
-                            poll_response = await client.get(
-                                "https://bountyagent-739298578243.us-central1.run.app/bounties/auto-generated"
-                            )
-                            poll_response.raise_for_status()
-                            poll_data = poll_response.json()
-                            
-                            # Check if research is complete
-                            if poll_data.get("success") and "auto_generated_bounties" in poll_data:
-                                # Check if the response has an actual error field
-                                if poll_data.get("error") is not None:
-                                    print(f"❌ Bounty agent polling returned error: {poll_data.get('error')}, starting over...")
-                                    break  # Break from polling loop to retry from beginning
-                                
-                                # Check if we have actual bounty data
-                                auto_generated_bounties = poll_data.get("auto_generated_bounties", {})
-                                if not auto_generated_bounties:
-                                    print(f"❌ Bounty agent polling returned empty bounties, starting over...")
-                                    break  # Break from polling loop to retry from beginning
-                                
-                                # Additional check: ensure we have bounties for at least one brand
-                                has_valid_bounties = False
-                                for brand_name, brand_data in auto_generated_bounties.items():
-                                    if isinstance(brand_data, dict) and brand_data.get("success") and brand_data.get("bounties"):
-                                        has_valid_bounties = True
-                                        break
-                                
-                                if not has_valid_bounties:
-                                    print(f"❌ Bounty agent polling returned no valid bounties, starting over...")
-                                    break  # Break from polling loop to retry from beginning
-                                
-                                bounty_result = str(poll_data)
-                                print(f"✅ Bounty agent completed after {poll_attempt} polling attempts!")
-                                print(f"📊 Found bounties for brands: {list(auto_generated_bounties.keys())}")
-                                break
-                            elif poll_data.get("status") == "error":
-                                print(f"❌ Bounty agent encountered an error, starting over...")
-                                break  # Break from polling loop to retry from beginning
-                            else:
-                                print(f"Still processing... Status: {poll_data.get('status', 'unknown')}")
-                        
-                        # If we got a successful result from polling, break the main retry loop
-                        if 'bounty_result' in locals():
-                            break
+                        print(f"❌ Bounty agent not ready yet, retrying in 4 seconds...")
+                        await asyncio.sleep(4)
                         
                 except Exception as e:
                     print(f"❌ Bounty agent request failed: {e}, retrying in 4 seconds...")
                     await asyncio.sleep(4)
-                    continue
             
-            # Check if we exceeded max attempts
-            if attempt >= max_attempts:
+            # If we still don't have bounty data after max attempts, use empty result
+            if bounty_result is None:
                 print(f"❌ Bounty agent failed after {max_attempts} attempts, using empty result")
                 bounty_result = '{"success": false, "error": "Max attempts exceeded", "auto_generated_bounties": {}}'
             
@@ -945,6 +857,18 @@ async def research_brand(request: BrandRequest):
             print(f"\n=== BOUNTY RESULT FOR {brand_name.upper()} ===")
             print(bounty_result)
             print("=" * 50)
+            
+            print(f"\n🎉 ALL STEPS COMPLETED! Preparing final response...")
+            print(f"📊 Response will include:")
+            print(f"   - Web Search: {len(web_search_result)} chars")
+            print(f"   - Negative Reviews: {len(negative_reviews_result)} chars") 
+            print(f"   - Positive Reviews: {len(positive_reviews_result)} chars")
+            print(f"   - Negative Reddit: {len(negative_reddit_result)} chars")
+            print(f"   - Positive Reddit: {len(positive_reddit_result)} chars")
+            print(f"   - Negative Social: {len(negative_social_result)} chars")
+            print(f"   - Positive Social: {len(positive_social_result)} chars")
+            print(f"   - Metrics: {len(metrics_result)} chars")
+            print(f"   - Bounties: {len(bounty_result)} chars")
             
             return OrchestratorResponse(
                 brand_name=brand_name,
