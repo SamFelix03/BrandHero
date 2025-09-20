@@ -110,6 +110,42 @@ llm_client = None
 # Storage for received metrics data from brand-metrics-agent
 received_metrics = {}
 
+class BrandRAG:
+    """Brand RAG class for knowledge graph interactions."""
+    def __init__(self, metta_instance):
+        self.metta = metta_instance
+        # Knowledge graph base URL
+        self.kg_base_url = "https://orchestrator-739298578243.us-central1.run.app"
+    
+    def get_brand_summary(self, brand_name: str) -> Dict:
+        """Get comprehensive brand summary from knowledge graph."""
+        try:
+            url = f"{self.kg_base_url}/kg/get_brand_summary"
+            params = {"brand_name": brand_name}
+            print(f"🌐 Making request to: {url}")
+            print(f"📤 Request params: {params}")
+            
+            response = requests.get(url, params=params, timeout=30)
+            print(f"📡 Response status: {response.status_code}")
+            
+            if response.status_code == 200:
+                data = response.json()
+                print(f"📊 Response data: {data}")
+                summary = data.get("summary", {})
+                print(f"📊 Extracted summary: {type(summary)} - {bool(summary)}")
+                if summary:
+                    print(f"📊 Summary keys: {list(summary.keys()) if isinstance(summary, dict) else 'Not a dict'}")
+                return summary
+            else:
+                print(f"❌ Error response: {response.text}")
+            return {}
+        except Exception as e:
+            print(f"❌ Error getting brand summary: {e}")
+            return {}
+
+# Initialize BrandRAG
+rag = BrandRAG(metta)
+
 class LLM:
     def __init__(self, api_key):
         # Using OpenAI client to connect to ASI:One API (OpenAI-compatible interface)
@@ -155,29 +191,8 @@ def combine_brand_data(metrics_data: Dict, kg_data: Dict, brand_name: str) -> Di
     return None
 
 def get_brand_data_from_research_agent(brand_name: str) -> Dict:
-    """Fetch brand data from the brand-research-agent."""
-    try:
-        # Call the brand research agent's summary endpoint
-        url = "https://orchestrator-739298578243.us-central1.run.app/brand/summary"
-        payload = {"brand_name": brand_name}
-        
-        print(f"🌐 Fetching brand data from research agent: {url}")
-        response = requests.post(url, json=payload, timeout=30)
-        
-        if response.status_code == 200:
-            data = response.json()
-            if data.get("success"):
-                return data.get("summary", {})
-            else:
-                print(f"❌ Brand research agent returned error: {data}")
-                return {}
-        else:
-            print(f"❌ HTTP error from brand research agent: {response.status_code}")
-            return {}
-            
-    except Exception as e:
-        print(f"❌ Error fetching brand data: {e}")
-        return {}
+    """Fetch brand data from the knowledge graph using BrandRAG approach."""
+    return rag.get_brand_summary(brand_name)
 
 def analyze_brand_weaknesses(brand_data: Dict, brand_name: str, llm: LLM) -> Dict:
     """Analyze brand data to identify weaknesses and areas for improvement."""
@@ -499,6 +514,7 @@ async def startup_handler(ctx: Context):
     ctx.logger.info(f"Bounty Suggestion Agent started with address: {ctx.agent.address}")
     ctx.logger.info("Agent is ready to generate bounty suggestions based on brand analysis!")
     ctx.logger.info("🧠 Using ASI:One AI reasoning (asi1-mini model) for bounty generation")
+    ctx.logger.info("📊 BrandRAG initialized for knowledge graph access")
     ctx.logger.info("🤖 Direct agent communication enabled - will receive metrics from brand-metrics-agent")
     ctx.logger.info("🚀 AUTO-GENERATION ENABLED - bounties will be generated immediately upon receiving metrics!")
     ctx.logger.info("REST API endpoints available:")
