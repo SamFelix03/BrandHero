@@ -94,6 +94,13 @@ class AllBrandsResponse(Model):
     timestamp: str
     agent_address: str
 
+class LastMetricsResponse(Model):
+    success: bool
+    brand_name: Optional[str]
+    metrics: Optional[Dict]
+    timestamp: str
+    agent_address: str
+
 # A2A Communication Models for sending metrics to bounty-agent
 class MetricsData(Model):
     brand_name: str
@@ -332,6 +339,10 @@ initialize_knowledge_graph(metta)
 rag = BrandRAG(metta)
 llm = LLM(api_key=ASI_ONE_API_KEY)
 
+# Global storage for last metrics data
+last_metrics_data = None
+last_brand_name = None
+
 # Protocol setup
 chat_proto = Protocol(spec=chat_protocol_spec)
 
@@ -358,6 +369,7 @@ async def startup_handler(ctx: Context):
     ctx.logger.info("- POST http://localhost:8080/brand/summary")
     ctx.logger.info("- POST http://localhost:8080/brand/metrics")
     ctx.logger.info("- GET  http://localhost:8080/brands/all")
+    ctx.logger.info("- GET  http://localhost:8080/brand/metrics/last")
 
 # Chat Protocol Handlers
 @chat_proto.on_message(ChatMessage)
@@ -598,6 +610,43 @@ async def handle_all_brands(ctx: Context) -> AllBrandsResponse:
             agent_address=ctx.agent.address
         )
 
+@agent.on_rest_get("/brand/metrics/last", LastMetricsResponse)
+async def handle_last_metrics(ctx: Context) -> LastMetricsResponse:
+    """Handle requests for the last generated brand metrics."""
+    ctx.logger.info("Received request for last brand metrics")
+    
+    try:
+        global last_metrics_data, last_brand_name
+        
+        if last_metrics_data is not None and last_brand_name is not None:
+            return LastMetricsResponse(
+                success=True,
+                brand_name=last_brand_name,
+                metrics=last_metrics_data,
+                timestamp=datetime.now(timezone.utc).isoformat(),
+                agent_address=ctx.agent.address
+            )
+        else:
+            return LastMetricsResponse(
+                success=False,
+                brand_name=None,
+                metrics=None,
+                timestamp=datetime.now(timezone.utc).isoformat(),
+                agent_address=ctx.agent.address
+            )
+        
+    except Exception as e:
+        error_msg = f"Error processing last metrics request: {str(e)}"
+        ctx.logger.error(error_msg)
+        
+        return LastMetricsResponse(
+            success=False,
+            brand_name=None,
+            metrics=None,
+            timestamp=datetime.now(timezone.utc).isoformat(),
+            agent_address=ctx.agent.address
+        )
+
 @agent.on_rest_post("/brand/metrics", BrandMetricsRequest, BrandMetricsResponse)
 async def handle_brand_metrics(ctx: Context, req: BrandMetricsRequest) -> BrandMetricsResponse:
     """Handle comprehensive brand metrics analysis requests."""
@@ -610,6 +659,11 @@ async def handle_brand_metrics(ctx: Context, req: BrandMetricsRequest) -> BrandM
         if brand_summary:
             # Generate comprehensive metrics using LLM
             metrics = generate_brand_metrics(req.brand_name, brand_summary, llm)
+            
+            # Store the metrics data globally for the last metrics endpoint
+            global last_metrics_data, last_brand_name
+            last_metrics_data = metrics
+            last_brand_name = req.brand_name
             
             # Send metrics data to bounty agent via A2A communication
             await send_metrics_to_bounty_agent(ctx, req.brand_name, brand_summary)
@@ -663,6 +717,8 @@ if __name__ == '__main__':
     print("Body: {\"brand_name\": \"Tesla\"}")
     print("Returns: Comprehensive brand metrics including sentiment, reputation risk, market position, customer experience, performance indicators, and strategic insights")
     print("\nGET http://localhost:8080/brands/all")
+    print("\nGET http://localhost:8080/brand/metrics/last")
+    print("Returns: The metrics data for the last brand that generated metrics")
     print("\n🧪 Test queries:")
     print("- 'What brands do you have data for?'")
     print("- 'Tell me about Tesla's sentiment analysis'")
