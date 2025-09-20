@@ -98,54 +98,65 @@ def process_query(query, rag: BrandRAG, llm: LLM):
         if brand_summary:
             print(f"📊 Brand summary keys: {list(brand_summary.keys()) if isinstance(brand_summary, dict) else 'Not a dict'}")
             
+            # Extract all data types
             web_results = brand_summary.get('web_results', [])
-            print(f"📊 Web Results: {len(web_results) if web_results else 0} items")
-            if web_results:
-                print(f"   Sample: {web_results[0][:100]}..." if len(web_results[0]) > 100 else f"   Sample: {web_results[0]}")
-            
-            positive_reddit = brand_summary.get('positive_reddit', [])
-            print(f"📊 Positive Reddit: {len(positive_reddit) if positive_reddit else 0} items")
-            if positive_reddit:
-                print(f"   Sample: {positive_reddit[0][:100]}..." if len(positive_reddit[0]) > 100 else f"   Sample: {positive_reddit[0]}")
-            
-            negative_reddit = brand_summary.get('negative_reddit', [])
-            print(f"📊 Negative Reddit: {len(negative_reddit) if negative_reddit else 0} items")
-            if negative_reddit:
-                print(f"   Sample: {negative_reddit[0][:100]}..." if len(negative_reddit[0]) > 100 else f"   Sample: {negative_reddit[0]}")
-            
             positive_reviews = brand_summary.get('positive_reviews', [])
-            print(f"📊 Positive Reviews: {len(positive_reviews) if positive_reviews else 0} items")
-            if positive_reviews:
-                print(f"   Sample: {positive_reviews[0][:100]}..." if len(positive_reviews[0]) > 100 else f"   Sample: {positive_reviews[0]}")
-            
             negative_reviews = brand_summary.get('negative_reviews', [])
-            print(f"📊 Negative Reviews: {len(negative_reviews) if negative_reviews else 0} items")
-            if negative_reviews:
-                print(f"   Sample: {negative_reviews[0][:100]}..." if len(negative_reviews[0]) > 100 else f"   Sample: {negative_reviews[0]}")
-            
+            positive_reddit = brand_summary.get('positive_reddit', [])
+            negative_reddit = brand_summary.get('negative_reddit', [])
             positive_social = brand_summary.get('positive_social', [])
-            print(f"📊 Positive Social: {len(positive_social) if positive_social else 0} items")
-            if positive_social:
-                print(f"   Sample: {positive_social[0][:100]}..." if len(positive_social[0]) > 100 else f"   Sample: {positive_social[0]}")
-            
             negative_social = brand_summary.get('negative_social', [])
-            print(f"📊 Negative Social: {len(negative_social) if negative_social else 0} items")
+            
+            print(f"📊 Data counts:")
+            print(f"   Web Results: {len(web_results) if web_results else 0} items")
+            print(f"   Positive Reviews: {len(positive_reviews) if positive_reviews else 0} items")
+            print(f"   Negative Reviews: {len(negative_reviews) if negative_reviews else 0} items")
+            print(f"   Positive Reddit: {len(positive_reddit) if positive_reddit else 0} items")
+            print(f"   Negative Reddit: {len(negative_reddit) if negative_reddit else 0} items")
+            print(f"   Positive Social: {len(positive_social) if positive_social else 0} items")
+            print(f"   Negative Social: {len(negative_social) if negative_social else 0} items")
+            
+            # Create comprehensive data summary for LLM
+            all_data = []
+            
+            if web_results:
+                all_data.append(f"WEB SEARCH RESULTS:\n{chr(10).join(web_results[:5])}")  # Top 5 web results
+            
+            if positive_reviews:
+                all_data.append(f"POSITIVE REVIEWS:\n{chr(10).join(positive_reviews[:5])}")  # Top 5 positive reviews
+            
+            if negative_reviews:
+                all_data.append(f"NEGATIVE REVIEWS:\n{chr(10).join(negative_reviews[:5])}")  # Top 5 negative reviews
+            
+            if positive_reddit:
+                all_data.append(f"POSITIVE REDDIT DISCUSSIONS:\n{chr(10).join(positive_reddit[:5])}")  # Top 5 positive reddit
+            
+            if negative_reddit:
+                all_data.append(f"NEGATIVE REDDIT DISCUSSIONS:\n{chr(10).join(negative_reddit[:5])}")  # Top 5 negative reddit
+            
+            if positive_social:
+                all_data.append(f"POSITIVE SOCIAL MEDIA:\n{chr(10).join(positive_social[:5])}")  # Top 5 positive social
+            
             if negative_social:
-                print(f"   Sample: {negative_social[0][:100]}..." if len(negative_social[0]) > 100 else f"   Sample: {negative_social[0]}")
+                all_data.append(f"NEGATIVE SOCIAL MEDIA:\n{chr(10).join(negative_social[:5])}")  # Top 5 negative social
+            
+            comprehensive_data = "\n\n".join(all_data)
             
             prompt = (
                 f"Query: '{query}'\n"
-                f"Brand: {keyword}\n"
-                f"Web Results: {web_results[0] if web_results else 'No data available'}\n"
-                f"Positive Reddit: {positive_reddit[0] if positive_reddit else 'No data available'}\n"
-                f"Negative Reddit: {negative_reddit[0] if negative_reddit else 'No data available'}\n"
-                f"Positive Reviews: {positive_reviews[0] if positive_reviews else 'No data available'}\n"
-                f"Negative Reviews: {negative_reviews[0] if negative_reviews else 'No data available'}\n"
-                f"Positive Social: {positive_social[0] if positive_social else 'No data available'}\n"
-                f"Negative Social: {negative_social[0] if negative_social else 'No data available'}\n"
-                "Generate a comprehensive brand analysis report with insights and recommendations."
+                f"Brand: {keyword}\n\n"
+                f"COMPREHENSIVE BRAND DATA:\n{comprehensive_data}\n\n"
+                f"INSTRUCTIONS: Provide a comprehensive brand analysis report that includes:\n"
+                f"1. Brand overview and market positioning\n"
+                f"2. Strengths and positive aspects\n"
+                f"3. Weaknesses and areas for improvement\n"
+                f"4. Customer sentiment analysis across platforms\n"
+                f"5. Competitive insights and market trends\n"
+                f"6. Strategic recommendations for brand growth\n"
+                f"7. Risk assessment and mitigation strategies\n\n"
+                f"Make the analysis thorough, data-driven, and actionable with specific insights from the provided data."
             )
-            print(f"📝 Generated prompt length: {len(prompt)} characters")
+            print(f"📝 Generated comprehensive prompt length: {len(prompt)} characters")
         else:
             # Brand not found, suggest research
             print(f"🔍 Brand '{keyword}' not found in knowledge graph")
@@ -160,57 +171,77 @@ def process_query(query, rag: BrandRAG, llm: LLM):
             )
     
     elif intent == "sentiment_analysis" and keyword:
-        # Get sentiment-specific data
-        print(f"🔍 Fetching sentiment data for brand: '{keyword}'")
+        # Get comprehensive brand data for sentiment analysis
+        print(f"🔍 Fetching comprehensive brand data for sentiment analysis: '{keyword}'")
         
-        positive_reviews = rag.query_reviews(keyword, "positive")
-        print(f"📊 Positive Reviews: {len(positive_reviews) if positive_reviews else 0} items")
-        if positive_reviews:
-            print(f"   Sample: {positive_reviews[0][:100]}..." if len(positive_reviews[0]) > 100 else f"   Sample: {positive_reviews[0]}")
+        # Get ALL brand data from knowledge graph
+        brand_summary = rag.get_brand_summary(keyword)
+        print(f"📊 Brand summary received: {type(brand_summary)} - {bool(brand_summary)}")
         
-        negative_reviews = rag.query_reviews(keyword, "negative")
-        print(f"📊 Negative Reviews: {len(negative_reviews) if negative_reviews else 0} items")
-        if negative_reviews:
-            print(f"   Sample: {negative_reviews[0][:100]}..." if len(negative_reviews[0]) > 100 else f"   Sample: {negative_reviews[0]}")
-        
-        positive_reddit = rag.query_reddit_threads(keyword, "positive")
-        print(f"📊 Positive Reddit: {len(positive_reddit) if positive_reddit else 0} items")
-        if positive_reddit:
-            print(f"   Sample: {positive_reddit[0][:100]}..." if len(positive_reddit[0]) > 100 else f"   Sample: {positive_reddit[0]}")
-        
-        negative_reddit = rag.query_reddit_threads(keyword, "negative")
-        print(f"📊 Negative Reddit: {len(negative_reddit) if negative_reddit else 0} items")
-        if negative_reddit:
-            print(f"   Sample: {negative_reddit[0][:100]}..." if len(negative_reddit[0]) > 100 else f"   Sample: {negative_reddit[0]}")
-        
-        positive_social = rag.query_social_comments(keyword, "positive")
-        print(f"📊 Positive Social: {len(positive_social) if positive_social else 0} items")
-        if positive_social:
-            print(f"   Sample: {positive_social[0][:100]}..." if len(positive_social[0]) > 100 else f"   Sample: {positive_social[0]}")
-        
-        negative_social = rag.query_social_comments(keyword, "negative")
-        print(f"📊 Negative Social: {len(negative_social) if negative_social else 0} items")
-        if negative_social:
-            print(f"   Sample: {negative_social[0][:100]}..." if len(negative_social[0]) > 100 else f"   Sample: {negative_social[0]}")
-        
-        print(f"🔍 Total sentiment data items: {sum([len(x) if x else 0 for x in [positive_reviews, negative_reviews, positive_reddit, negative_reddit, positive_social, negative_social]])}")
-        
-        if any([positive_reviews, negative_reviews, positive_reddit, negative_reddit, positive_social, negative_social]):
+        if brand_summary:
+            print(f"📊 Brand summary keys: {list(brand_summary.keys()) if isinstance(brand_summary, dict) else 'Not a dict'}")
+            
+            # Extract all data types
+            web_results = brand_summary.get('web_results', [])
+            positive_reviews = brand_summary.get('positive_reviews', [])
+            negative_reviews = brand_summary.get('negative_reviews', [])
+            positive_reddit = brand_summary.get('positive_reddit', [])
+            negative_reddit = brand_summary.get('negative_reddit', [])
+            positive_social = brand_summary.get('positive_social', [])
+            negative_social = brand_summary.get('negative_social', [])
+            
+            print(f"📊 Data counts:")
+            print(f"   Web Results: {len(web_results) if web_results else 0} items")
+            print(f"   Positive Reviews: {len(positive_reviews) if positive_reviews else 0} items")
+            print(f"   Negative Reviews: {len(negative_reviews) if negative_reviews else 0} items")
+            print(f"   Positive Reddit: {len(positive_reddit) if positive_reddit else 0} items")
+            print(f"   Negative Reddit: {len(negative_reddit) if negative_reddit else 0} items")
+            print(f"   Positive Social: {len(positive_social) if positive_social else 0} items")
+            print(f"   Negative Social: {len(negative_social) if negative_social else 0} items")
+            
+            # Create comprehensive data summary for LLM
+            all_data = []
+            
+            if web_results:
+                all_data.append(f"WEB SEARCH RESULTS:\n{chr(10).join(web_results[:3])}")  # Top 3 web results
+            
+            if positive_reviews:
+                all_data.append(f"POSITIVE REVIEWS:\n{chr(10).join(positive_reviews[:5])}")  # Top 5 positive reviews
+            
+            if negative_reviews:
+                all_data.append(f"NEGATIVE REVIEWS:\n{chr(10).join(negative_reviews[:5])}")  # Top 5 negative reviews
+            
+            if positive_reddit:
+                all_data.append(f"POSITIVE REDDIT DISCUSSIONS:\n{chr(10).join(positive_reddit[:3])}")  # Top 3 positive reddit
+            
+            if negative_reddit:
+                all_data.append(f"NEGATIVE REDDIT DISCUSSIONS:\n{chr(10).join(negative_reddit[:3])}")  # Top 3 negative reddit
+            
+            if positive_social:
+                all_data.append(f"POSITIVE SOCIAL MEDIA:\n{chr(10).join(positive_social[:3])}")  # Top 3 positive social
+            
+            if negative_social:
+                all_data.append(f"NEGATIVE SOCIAL MEDIA:\n{chr(10).join(negative_social[:3])}")  # Top 3 negative social
+            
+            comprehensive_data = "\n\n".join(all_data)
+            
             prompt = (
                 f"Query: '{query}'\n"
-                f"Brand: {keyword}\n"
-                f"Positive Reviews: {positive_reviews[0] if positive_reviews else 'No data'}\n"
-                f"Negative Reviews: {negative_reviews[0] if negative_reviews else 'No data'}\n"
-                f"Positive Reddit: {positive_reddit[0] if positive_reddit else 'No data'}\n"
-                f"Negative Reddit: {negative_reddit[0] if negative_reddit else 'No data'}\n"
-                f"Positive Social: {positive_social[0] if positive_social else 'No data'}\n"
-                f"Negative Social: {negative_social[0] if negative_social else 'No data'}\n"
-                "Provide a detailed sentiment analysis with key themes, trends, and actionable insights."
+                f"Brand: {keyword}\n\n"
+                f"COMPREHENSIVE BRAND DATA:\n{comprehensive_data}\n\n"
+                f"INSTRUCTIONS: Provide a detailed sentiment analysis summary that includes:\n"
+                f"1. Overall sentiment overview\n"
+                f"2. Key positive themes and trends\n"
+                f"3. Key negative themes and concerns\n"
+                f"4. Platform-specific insights (reviews vs Reddit vs social media)\n"
+                f"5. Actionable recommendations for brand improvement\n"
+                f"6. Competitive positioning insights\n\n"
+                f"Make the analysis comprehensive, data-driven, and actionable."
             )
-            print(f"📝 Generated prompt length: {len(prompt)} characters")
+            print(f"📝 Generated comprehensive prompt length: {len(prompt)} characters")
         else:
             # Check if the knowledge graph is accessible at all
-            print(f"🔍 No sentiment data found, checking knowledge graph accessibility...")
+            print(f"🔍 No brand data found, checking knowledge graph accessibility...")
             all_brands = rag.get_all_brands()
             print(f"📊 Available brands in KG: {all_brands}")
             
@@ -229,7 +260,7 @@ def process_query(query, rag: BrandRAG, llm: LLM):
                     f"Query: '{query}'\n"
                     f"Brand: {keyword}\n"
                     f"Available brands in knowledge graph: {', '.join(all_brands)}\n"
-                    f"No sentiment data available for '{keyword}'. This brand hasn't been researched yet. "
+                    f"No data available for '{keyword}'. This brand hasn't been researched yet. "
                     f"Suggest how to research this brand and what data sources to use."
                 )
     
@@ -256,13 +287,29 @@ def process_query(query, rag: BrandRAG, llm: LLM):
     print(f"📥 LLM response preview: {response[:200]}...")
     
     try:
-        selected_q = response.split('\n')[0].replace("Selected Question: ", "").strip()
-        answer = response.split('\n')[1].replace("Humanized Answer: ", "").strip()
+        # Split response into lines and find the sections
+        lines = response.split('\n')
+        selected_q = query  # Default to original query
+        answer = response   # Default to full response
+        
+        # Look for "Selected Question:" and "Humanized Answer:" patterns
+        for i, line in enumerate(lines):
+            if "Selected Question:" in line:
+                selected_q = line.replace("Selected Question:", "").strip()
+            elif "Humanized Answer:" in line:
+                # Get everything after "Humanized Answer:" including newlines
+                answer_lines = lines[i:]
+                answer_lines[0] = answer_lines[0].replace("Humanized Answer:", "").strip()
+                answer = '\n'.join(answer_lines).strip()
+                break
+        
         print(f"✅ Parsed response successfully:")
         print(f"   Selected Question: {selected_q}")
-        print(f"   Humanized Answer: {answer[:100]}..." if len(answer) > 100 else f"   Humanized Answer: {answer}")
+        print(f"   Humanized Answer length: {len(answer)} characters")
+        print(f"   Humanized Answer preview: {answer[:200]}...")
+        
         return {"selected_question": selected_q, "humanized_answer": answer}
-    except IndexError:
-        print(f"⚠️ Failed to parse LLM response format, returning raw response")
+    except Exception as e:
+        print(f"⚠️ Failed to parse LLM response format: {e}")
         print(f"   Raw response: {response[:200]}...")
         return {"selected_question": query, "humanized_answer": response}
